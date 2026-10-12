@@ -10,7 +10,7 @@ import {
   cn,
 } from "@fettlr/design-system";
 import { RiArrowUpCircleLine, RiCheckboxCircleLine, RiLoader4Line, RiAlertLine } from "@remixicon/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { commands, type UiUpdateFailure } from "../bindings";
@@ -97,6 +97,12 @@ export function UpdateAllSheet({ staleTotal }: { staleTotal: number }) {
     setPhase("idle");
   };
 
+  useEffect(() => {
+    if (phase !== "succeeded") return;
+    const timer = window.setTimeout(dismiss, 3000);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
+
   return (
     <>
       {staleTotal > 0 || phase !== "idle" ? (
@@ -139,17 +145,26 @@ export function UpdateAllSheet({ staleTotal }: { staleTotal: number }) {
                   />
                 </div>
                 <p className="text-xs text-text-muted">
-                  {t("updateAll.progress", { done: progress.done, total: progress.total })}
+                  {t("updateAll.progress", {
+                    done: Math.min(progress.done + 1, progress.total),
+                    total: progress.total,
+                  })}
                 </p>
               </div>
             ) : null}
 
             {showPreparing ? (
-              <p className={cn("text-sm text-text-muted", phaseIn)}>{t("updateAll.preparing")}</p>
+              <div className={cn("flex items-center gap-2 text-sm text-text-muted", phaseIn)}>
+                <RiLoader4Line className="size-4 shrink-0 animate-spin text-accent-text" aria-hidden="true" />
+                {t("updateAll.preparing")}
+              </div>
             ) : null}
 
             {phase === "refreshing" ? (
-              <p className={cn("text-sm text-text-muted", phaseIn)}>{t("common.refreshing")}</p>
+              <div className={cn("flex items-center gap-2 text-sm text-text-muted", phaseIn)}>
+                <RiLoader4Line className="size-4 shrink-0 animate-spin text-accent-text" aria-hidden="true" />
+                {t("common.refreshing")}
+              </div>
             ) : null}
 
             {phase === "failed" ? (

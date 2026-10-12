@@ -1,0 +1,6 @@
+[workspace]
+members = ["app/src-tauri", "crates/fettlr-core"]
+resolver = "2"
+
+[profile.release.build-override]
+strip = false

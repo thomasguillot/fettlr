@@ -1,0 +1,15 @@
+{
+  "name": "fettlr",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "scripts": {
+    "dev": "pnpm --dir app tauri dev",
+    "build": "pnpm --dir app tauri build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "check-contrast": "pnpm -r run check-contrast",
+    "localize:check": "./scripts/sync-localizations.py --check",
+    "gate": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check-contrast && pnpm run localize:check"
+  }
+}

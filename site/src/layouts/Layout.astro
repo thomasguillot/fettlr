@@ -1,0 +1,59 @@
+---
+import "../styles.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const iconHref = `${base}/icon.png`;
+const socialUrl = new URL(`${base}/og.png`, Astro.site ?? Astro.url).href;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
+const socialAlt =
+  "The headline \"One window for every Claude Code skill.\" above the Fettlr app window. The sidebar lists Needs updating (7), Skills (238), Subagents (12), Plugins (19), Marketplaces (11), MCP Servers (17), and Connectors (3). The main pane lists seven items that need updating, each with an Update button, and an Update all (6) button.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href={iconHref} />
+    <link rel="apple-touch-icon" href={iconHref} />
+    <link rel="canonical" href={canonicalUrl} />
+    <meta name="theme-color" content="oklch(0.99 0.002 286)" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="oklch(0.17 0.004 286)" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Fettlr" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={socialUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={socialAlt} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={socialUrl} />
+    <meta name="twitter:image:alt" content={socialAlt} />
+    <slot name="head" />
+    <script is:inline>
+      (function () {
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+        const apply = function () {
+          document.documentElement.classList.toggle("dark", media.matches);
+        };
+        apply();
+        media.addEventListener("change", apply);
+      })();
+    </script>
+  </head>
+  <body class="bg-bg text-text">
+    <a href="#main" class="n-skip">Skip to content</a>
+    <slot />
+    <div class="n-toasts" data-toasts role="status" aria-live="polite"></div>
+  </body>
+</html>

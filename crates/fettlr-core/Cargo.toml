@@ -1,0 +1,18 @@
+[package]
+name = "fettlr-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+libc = "0.2.189"
+log = "0.4.34"
+notify = "8.2.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+sha2 = "0.11.0"
+tempfile = "3.27.0"
+thiserror = "2.0.20"
+trash = "5.2.6"
+ureq = { version = "3.4.0", features = ["json"] }

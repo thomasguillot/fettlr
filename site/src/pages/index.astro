@@ -1,0 +1,102 @@
+---
+import AppPreview from "../components/AppPreview.astro";
+import ClaudeInstall from "../components/ClaudeInstall.astro";
+import Closing from "../components/Closing.astro";
+import Hero from "../components/Hero.astro";
+import InstallSteps from "../components/InstallSteps.astro";
+import Outcomes from "../components/Outcomes.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import Layout from "../layouts/Layout.astro";
+import { AUTHOR_NAME, AUTHOR_URL, LICENSE_URL, RELEASES_URL, REPO_URL, version } from "../site";
+
+const title = "Fettlr: manage Claude Code's skills, plugins, and MCP servers";
+const description =
+  "A desktop app for everything Claude Code has installed: skills, plugins, marketplaces, and MCP servers, at user level and per project. See what's stale, update it, park what you don't use. Free and open source.";
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Fettlr",
+  description,
+  url: canonicalUrl,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS 13 or later",
+  processorRequirements: "Apple silicon (arm64)",
+  ...(version ? { softwareVersion: version } : {}),
+  downloadUrl: RELEASES_URL,
+  softwareHelp: `${REPO_URL}#readme`,
+  license: LICENSE_URL,
+  isAccessibleForFree: true,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  author: {
+    "@type": "Person",
+    name: AUTHOR_NAME,
+    url: AUTHOR_URL,
+  },
+  screenshot: new URL(`${base}/og.png`, Astro.site).href,
+  codeRepository: REPO_URL,
+};
+---
+
+<Layout title={title} description={description}>
+  <script
+    type="application/ld+json"
+    slot="head"
+    is:inline
+    set:html={JSON.stringify(structuredData).replace(/</g, "\\u003c")}
+  />
+
+  <main id="main">
+    <Hero />
+
+    <section class="n-shell n-attached">
+      <div class="n-reveal">
+        <AppPreview />
+      </div>
+      <p class="mt-5 max-w-prose text-sm text-text-muted">
+        The Needs updating screen: the skills, plugin, marketplace, and MCP server that have fallen behind, an update button on each, and Update all to work through the list.
+      </p>
+    </section>
+
+    <Outcomes />
+
+    <section id="install" class="n-shell">
+      <div class="n-grid">
+        <h2 class="n-h2 col-span-12 text-accent-text lg:col-span-10">
+          Getting Fettlr onto your Mac.
+        </h2>
+        <p class="n-lead col-span-12 text-text-muted lg:col-span-6 lg:col-start-1">
+          There is no Apple Developer Program behind Fettlr, so macOS asks you to approve it once.
+          Claude Code can handle the whole thing, or you can do it by hand in three steps.
+        </p>
+      </div>
+
+      <ul class="mt-[clamp(2.5rem,5vw,4rem)]">
+        <li class="n-outcome n-grid">
+          <h3 class="n-h3 col-span-12 text-text lg:col-span-5">Let Claude Code install it</h3>
+          <div class="col-span-12 lg:col-span-6 lg:col-start-7">
+            <ClaudeInstall />
+          </div>
+        </li>
+
+        <li class="n-outcome n-grid">
+          <h3 class="n-h3 col-span-12 text-text lg:col-span-5">Or install it by hand</h3>
+          <div class="col-span-12 lg:col-span-6 lg:col-start-7">
+            <InstallSteps />
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <Closing />
+  </main>
+
+  <SiteFooter />
+</Layout>

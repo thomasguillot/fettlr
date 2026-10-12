@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Everything the Fettlr window is allowed to reach directly; all Claude Code state goes through the typed commands instead.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-start-dragging"
+  ]
+}

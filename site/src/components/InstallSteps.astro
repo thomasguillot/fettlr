@@ -1,0 +1,40 @@
+---
+interface Step {
+  title: string;
+  description: string;
+}
+
+const steps: Step[] = [
+  {
+    title: "Drag it into Applications",
+    description:
+      "Open the .dmg you downloaded, then drag Fettlr onto the Applications shortcut inside it.",
+  },
+  {
+    title: "Open it, then allow it",
+    description:
+      'Double-click Fettlr in your Applications folder. When macOS says it "can\'t verify the developer," click Done, not Move to Trash. Then open System Settings, Privacy & Security, scroll to Security, and click Open Anyway.',
+  },
+  {
+    title: "Confirm",
+    description:
+      "Authenticate and click Open. macOS only asks once; after that Fettlr launches normally.",
+  },
+];
+---
+
+<ol class="flex flex-col gap-8">
+  {
+    steps.map((step, index) => (
+      <li class="flex gap-5">
+        <span aria-hidden="true" class="n-step-mark">
+          {index + 1}
+        </span>
+        <div>
+          <h4 class="text-base font-medium tracking-tight text-text">{step.title}</h4>
+          <p class="mt-1 max-w-prose text-sm text-text-muted">{step.description}</p>
+        </div>
+      </li>
+    ))
+  }
+</ol>

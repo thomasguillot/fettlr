@@ -1,0 +1,74 @@
+{
+  "installed": [
+    {
+      "id": "accesslint@accesslint",
+      "version": "0.10.2",
+      "scope": "user",
+      "enabled": true,
+      "installPath": "/Users/dev/.claude/plugins/cache/accesslint/accesslint/0.10.2",
+      "installedAt": "2026-03-28T17:16:40.547Z",
+      "lastUpdated": "2026-08-19T07:59:43.325Z"
+    },
+    {
+      "id": "linear@claude-plugins-official",
+      "version": "unknown",
+      "scope": "project",
+      "enabled": false,
+      "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/unknown",
+      "installedAt": "2026-03-18T14:31:56.664Z",
+      "lastUpdated": "2026-08-22T13:14:53.210Z",
+      "projectPath": "/Users/dev/Sites/example-project"
+    }
+  ],
+  "available": [
+    {
+      "pluginId": "agent-sdk-dev@claude-plugins-official",
+      "name": "agent-sdk-dev",
+      "description": "Development kit for working with the Claude Agent SDK",
+      "marketplaceName": "claude-plugins-official",
+      "source": "./plugins/agent-sdk-dev",
+      "installCount": 68246
+    },
+    {
+      "pluginId": "aws-serverless@claude-plugins-official",
+      "name": "aws-serverless",
+      "description": "Design, build, deploy, and debug serverless applications.",
+      "marketplaceName": "claude-plugins-official",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/awslabs/agent-plugins.git",
+        "path": "plugins/aws-serverless",
+        "ref": "main",
+        "sha": "34afdf5005325f17d5da2d1443b87f27a53b0a20"
+      },
+      "installCount": 9223
+    },
+    {
+      "pluginId": "notion@claude-plugins-official",
+      "name": "notion",
+      "description": "Notion workspace integration.",
+      "marketplaceName": "claude-plugins-official",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/makenotion/claude-code-notion-plugin.git",
+        "sha": "9847f2aa1a15f25df35ed1fb7b4557dbb60cd651"
+      }
+    },
+    {
+      "pluginId": "impeccable@impeccable",
+      "name": "impeccable",
+      "description": "Design fluency for frontend development.",
+      "marketplaceName": "impeccable",
+      "version": "4.1.1",
+      "source": "./plugin"
+    },
+    {
+      "pluginId": "linear@claude-plugins-official",
+      "name": "linear",
+      "description": "Linear issue tracking integration.",
+      "marketplaceName": "claude-plugins-official",
+      "source": "./plugins/linear",
+      "installCount": 41207
+    }
+  ]
+}

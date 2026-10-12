@@ -1,0 +1,20 @@
+[
+  {
+    "name": "accesslint",
+    "source": "github",
+    "repo": "accesslint/claude-marketplace",
+    "installLocation": "/Users/dev/.claude/plugins/marketplaces/accesslint"
+  },
+  {
+    "name": "claude-plugins-official",
+    "source": "github",
+    "repo": "anthropics/claude-plugins-official",
+    "installLocation": "/Users/dev/.claude/plugins/marketplaces/claude-plugins-official"
+  },
+  {
+    "name": "internal-devkit",
+    "source": "git",
+    "url": "https://git.example.com/acme/internal-devkit.git",
+    "installLocation": "/Users/dev/.claude/plugins/marketplaces/internal-devkit"
+  }
+]

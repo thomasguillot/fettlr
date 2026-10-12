@@ -1,0 +1,73 @@
+[
+  {
+    "id": "accesslint@accesslint",
+    "version": "0.10.2",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/Users/dev/.claude/plugins/cache/accesslint/accesslint/0.10.2",
+    "installedAt": "2026-03-28T17:16:40.547Z",
+    "lastUpdated": "2026-08-19T07:59:43.325Z",
+    "mcpServers": {
+      "accesslint": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@accesslint/mcp@latest"
+        ]
+      }
+    }
+  },
+  {
+    "id": "context7@claude-plugins-official",
+    "version": "unknown",
+    "scope": "project",
+    "enabled": true,
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/unknown",
+    "installedAt": "2026-03-18T14:31:56.470Z",
+    "lastUpdated": "2026-08-22T13:14:53.211Z",
+    "projectPath": "/Users/dev/Sites/example-project",
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  {
+    "id": "context7@claude-plugins-official",
+    "version": "unknown",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/unknown",
+    "installedAt": "2026-08-07T07:30:51.885Z",
+    "lastUpdated": "2026-08-22T14:17:10.879Z",
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  {
+    "id": "linear@claude-plugins-official",
+    "version": "unknown",
+    "scope": "project",
+    "enabled": false,
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/unknown",
+    "installedAt": "2026-03-18T14:31:56.664Z",
+    "lastUpdated": "2026-08-22T13:14:53.210Z",
+    "projectPath": "/Users/dev/Sites/example-project",
+    "mcpServers": {
+      "linear": {
+        "type": "http",
+        "url": "https://mcp.linear.app/mcp"
+      }
+    }
+  }
+]

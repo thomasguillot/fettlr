@@ -1,0 +1,25 @@
+---
+import { cn } from "@fettlr/design-system";
+
+interface Props {
+  size?: number;
+  class?: string;
+}
+
+const { size = 36, class: className } = Astro.props;
+
+const glyphSize = (size * 2) / 3;
+---
+
+<span
+  aria-hidden="true"
+  class={cn("flex shrink-0 items-center justify-center rounded-md bg-brand-contrast text-brand", className)}
+  style={{ width: `${size}px`, height: `${size}px` }}
+>
+  <svg viewBox="4 4 16 16" fill="none" width={glyphSize} height={glyphSize} aria-hidden="true">
+    <path
+      d="M8 20H6V19H7V12H8V6H9V4H17V5H18V6H13V8H12V9H11V11H15V12H16V13H11V15H10V16H9V19H8V20Z"
+      fill="currentColor"
+    />
+  </svg>
+</span>

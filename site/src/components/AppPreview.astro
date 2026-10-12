@@ -1,0 +1,242 @@
+---
+import type { IconName } from "../icons";
+import Icon from "./Icon.astro";
+
+interface Domain {
+  label: string;
+  icon: IconName;
+  count: number;
+  stale: number;
+}
+
+const DOMAINS: Domain[] = [
+  { label: "Skills", icon: "sparkles", count: 238, stale: 4 },
+  { label: "Subagents", icon: "robot", count: 12, stale: 0 },
+  { label: "Plugins", icon: "blocks", count: 19, stale: 1 },
+  { label: "Marketplaces", icon: "store", count: 11, stale: 1 },
+  { label: "MCP Servers", icon: "server", count: 17, stale: 1 },
+  { label: "Connectors", icon: "globe", count: 3, stale: 0 },
+];
+
+const STALE_ROWS = [
+  { name: "team-plugins", kind: "Marketplace", detail: "3 commits behind" },
+  { name: "commit-helper", kind: "Plugin", detail: "1.4.2 → 1.5.0" },
+  { name: "release-notes", kind: "Skill", detail: "4 commits behind" },
+  { name: "changelog-writer", kind: "Skill", detail: "2 commits behind" },
+  { name: "pdf-tools", kind: "Skill", detail: "1 commit behind" },
+  { name: "image-tools", kind: "Skill", detail: "6 commits behind" },
+  { name: "context-server", kind: "MCP server", detail: "2.1.0 → 2.3.1" },
+];
+
+const NAV: Domain[] = DOMAINS;
+
+const staleTotal = DOMAINS.reduce((total, domain) => total + domain.stale, 0);
+
+const lastChecked = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+}).format(new Date());
+
+const primaryButton =
+  "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium whitespace-nowrap text-accent-contrast";
+const secondaryButtonMd =
+  "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border-strong bg-surface px-3 text-sm font-medium whitespace-nowrap text-text";
+const secondaryButtonSm =
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border-strong bg-surface px-2.5 text-xs font-medium whitespace-nowrap text-text";
+const railDot = "absolute -top-px -right-px size-1.5 rounded-full bg-blue";
+const staleBadge =
+  "inline-flex max-w-full items-center rounded-full bg-blue-soft h-5.5 px-2 text-xs font-medium whitespace-nowrap text-blue-text";
+
+const cue = (start: number) => `--n-a:${start}%`;
+
+const rowVars =
+  "--n-row: calc(15rem - 1px - 2.5rem); --n-row-content: calc(var(--n-row) - 1.25rem); " +
+  "--n-rail: calc(2.25rem + 2.5rem + 1px);";
+const ease = "duration-[var(--duration-slow)] ease-[var(--ease-in-out)]";
+const widthGlide = `transition-[width] ${ease}`;
+const fade = `transition-opacity ${ease}`;
+const slide = `transition-[translate] ${ease}`;
+const press = "n-rail-toggle active:scale-[0.97] group-data-[collapsed]:active:scale-[0.92]";
+---
+
+<div aria-hidden="true" class="n-frame group" data-n-preview>
+<div class="n-window n-assemble flex h-[37.5rem] overflow-hidden xl:h-auto xl:aspect-[16/9]">
+  <nav
+    style={rowVars}
+    class={`flex w-60 shrink-0 flex-col overflow-hidden bg-bg-subtle ${widthGlide} group-data-[collapsed]:w-(--n-rail)`}
+  >
+    <div class="relative h-7 shrink-0">
+      <div class="absolute top-1/2 left-3.5 flex -translate-y-1/2 items-center gap-2">
+        <span class="size-3 shrink-0 rounded-full bg-border-strong" />
+        <span class="size-3 shrink-0 rounded-full bg-border-strong" />
+        <span class="size-3 shrink-0 rounded-full bg-border-strong" />
+      </div>
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col gap-5 p-5 pb-7">
+      <ul class="flex flex-1 flex-col items-center gap-0.5">
+        <li
+          class={`n-part flex h-9 w-(--n-row) shrink-0 items-center overflow-hidden rounded-md bg-accent-soft px-2.5 text-sm font-medium text-accent-text ${widthGlide} group-data-[collapsed]:w-9`}
+          style={cue(51)}
+        >
+          <span class="flex w-(--n-row-content) shrink-0 items-center gap-2">
+            <span class="relative shrink-0">
+              <Icon name="circleArrowUp" class="size-4 shrink-0" />
+              <span
+                aria-hidden="true"
+                style={`--digits:${String(staleTotal).length}`}
+                class={`${railDot} text-xs font-normal tabular-nums ring-1 ring-accent-soft ${slide} [translate:calc(var(--n-row-content)_-_var(--digits)*1ch_-_23px)_6px] group-data-[collapsed]:[translate:0px_0px]`}
+              ></span>
+            </span>
+            <span class={`flex-1 truncate text-left ${fade} group-data-[collapsed]:opacity-0`}>Needs updating</span>
+            <span
+              class={`n-part shrink-0 pl-3 text-xs font-normal text-text-muted tabular-nums ${fade} group-data-[collapsed]:opacity-0`}
+              style={cue(58)}
+            >
+              {staleTotal}
+            </span>
+          </span>
+        </li>
+        {
+          NAV.map(({ label, icon, count }, index) => (
+            <li
+              class={`n-part flex h-9 w-(--n-row) shrink-0 items-center overflow-hidden rounded-md px-2.5 text-sm font-medium text-text-muted ${widthGlide} group-data-[collapsed]:w-9`}
+              style={cue(55 + index * 2)}
+            >
+              <span class="flex w-(--n-row-content) shrink-0 items-center gap-2">
+                <Icon name={icon} class="size-4 shrink-0" />
+                <span class={`flex-1 truncate text-left ${fade} group-data-[collapsed]:opacity-0`}>{label}</span>
+                <span
+                  class={`n-part shrink-0 text-xs font-normal text-text-muted tabular-nums ${fade} group-data-[collapsed]:opacity-0`}
+                  style={cue(60 + index * 2)}
+                >
+                  {count}
+                </span>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+
+      <div class="flex flex-col gap-2">
+        <ul class="flex flex-col items-center gap-0.5">
+          <li
+            class={`n-part flex h-9 w-(--n-row) shrink-0 items-center overflow-hidden rounded-md px-2.5 text-sm font-medium text-text-muted ${widthGlide} group-data-[collapsed]:w-9`}
+            style={cue(65)}
+          >
+            <span class="flex w-(--n-row-content) shrink-0 items-center gap-2">
+              <Icon name="settings" class="size-4 shrink-0" />
+              <span class={`flex-1 truncate text-left ${fade} group-data-[collapsed]:opacity-0`}>Settings</span>
+            </span>
+          </li>
+        </ul>
+
+        <div class="flex justify-center">
+          <div class={`h-px w-(--n-row) bg-border ${widthGlide} group-data-[collapsed]:w-9`} />
+        </div>
+
+        <ul class="flex flex-col items-center gap-0.5">
+          <li
+            data-n-toggle
+            class={`n-part flex h-9 w-(--n-row) shrink-0 items-center overflow-hidden rounded-md px-2.5 text-sm font-medium text-text-muted hover:bg-surface-hover ${press} group-data-[collapsed]:w-9`}
+            style={cue(66)}
+          >
+            <span class="flex w-(--n-row-content) shrink-0 items-center gap-2">
+              <Icon name="panelLeftClose" class="size-4 shrink-0 group-data-[collapsed]:hidden" />
+              <Icon name="panelLeftOpen" class="hidden size-4 shrink-0 group-data-[collapsed]:block" />
+              <span class={`flex-1 truncate text-left ${fade} group-data-[collapsed]:opacity-0`}>Collapse sidebar</span>
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class="@container flex min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg">
+      <div class="flex h-15 shrink-0 items-center justify-between gap-2 px-6">
+        <span class="n-part truncate text-sm text-text-muted" style={cue(48)} data-n-checked>
+          Last checked {lastChecked}
+        </span>
+        <span class="flex shrink-0 items-center gap-2">
+          <span class={`n-part ${secondaryButtonMd}`} style={cue(48)}>
+            <Icon name="refreshCw" class="size-4 shrink-0" />
+            Refresh
+          </span>
+          <span class={`n-part ${primaryButton}`} style={cue(48)}>
+            <Icon name="circleArrowUp" class="size-4 shrink-0" />
+            Update all ({STALE_ROWS.filter((row) => row.kind !== "MCP server").length})
+          </span>
+        </span>
+      </div>
+
+      <div class="flex min-h-0 flex-1 flex-col px-6 pb-6">
+        <div class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border [&>*:last-child]:-mb-px">
+          <div class="relative w-full overflow-x-auto overflow-y-hidden" tabindex="-1">
+            <table class="w-full caption-bottom border-separate border-spacing-0 text-sm table-fixed">
+              <thead class="bg-bg-subtle [&_th]:border-b [&_th]:border-border">
+                <tr class="n-part" style={cue(75)}>
+                  <th class="h-8 w-[40%] truncate pl-4 pr-3 text-left align-middle text-xs font-medium whitespace-nowrap tracking-caps text-text-muted uppercase">
+                    Item
+                  </th>
+                  <th class="h-8 w-[18%] truncate px-3 text-left align-middle text-xs font-medium whitespace-nowrap tracking-caps text-text-muted uppercase">
+                    Kind
+                  </th>
+                  <th class="h-8 w-[27%] px-3 text-left align-middle text-xs font-medium whitespace-nowrap tracking-caps text-text-muted uppercase">
+                    Status
+                  </th>
+                  <th class="h-8 w-[15%] pl-3 pr-4 text-right align-middle text-xs font-medium whitespace-nowrap tracking-caps text-text-muted uppercase">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  STALE_ROWS.map((row, index) => (
+                    <tr class="n-part [&>td]:border-b [&>td]:border-border" style={cue(77 + index * 2)}>
+                      <td class="h-10 w-[40%] truncate pl-4 pr-3 align-middle font-medium tabular-nums text-text">
+                        {row.name}
+                      </td>
+                      <td class="h-10 w-[18%] truncate px-3 align-middle tabular-nums text-text-muted">
+                        {row.kind}
+                      </td>
+                      <td class="h-10 w-[27%] overflow-hidden px-3 align-middle tabular-nums">
+                        <span class={staleBadge}>
+                          <span class="min-w-0 truncate">{row.detail}</span>
+                        </span>
+                      </td>
+                      <td class="h-10 w-[15%] pl-3 pr-4 text-right align-middle tabular-nums">
+                        <span class={secondaryButtonSm}>Update</span>
+                      </td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p class="n-part mt-auto pt-6 text-xs text-text-muted" style={cue(91)}>Changes apply to new Claude Code sessions.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-n-preview]");
+  const toggle = root?.querySelector<HTMLElement>("[data-n-toggle]");
+  const checked = root?.querySelector<HTMLElement>("[data-n-checked]");
+
+  toggle?.addEventListener("click", () => {
+    root?.toggleAttribute("data-collapsed");
+  });
+
+  if (checked) {
+    const stamp = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date());
+    checked.textContent = `Last checked ${stamp}`;
+  }
+</script>

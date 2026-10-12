@@ -1,0 +1,98 @@
+---
+import Icon from "./Icon.astro";
+import { INSTALL_URL } from "../site";
+
+const prompt = `Fetch ${INSTALL_URL} and follow it to install and launch Fettlr.`;
+---
+
+<div data-claude-install>
+  <p class="max-w-prose text-text-muted">
+    Paste this into Claude Code. It picks up the launcher skill, installs Fettlr, walks the approval
+    prompt for you, and opens the app.
+  </p>
+  <div class="n-snippet mt-5">
+    <code id="fettlr-bootstrap">{prompt}</code>
+    <button type="button" class="n-copy" data-copy-target="fettlr-bootstrap">
+      <span data-copy-idle><Icon name="clipboard" class="size-4" /></span>
+      <span data-copy-spinner><Icon name="loaderCircle" class="n-spin size-4" /></span>
+      <span data-copy-done><Icon name="check" class="size-4" /></span>
+      <span>Copy</span>
+    </button>
+  </div>
+</div>
+
+<template data-copy-toast>
+  <div class="n-toast">
+    <span data-toast-icon="ok"><Icon name="check" class="size-4" /></span>
+    <span data-toast-icon="manual"><Icon name="info" class="size-4" /></span>
+    <span data-toast-message></span>
+  </div>
+</template>
+
+<script>
+  type Variant = "ok" | "manual";
+
+  const root = document.querySelector<HTMLElement>("[data-claude-install]");
+  const region = document.querySelector<HTMLElement>("[data-toasts]");
+  const template = document.querySelector<HTMLTemplateElement>("[data-copy-toast]");
+  const buttons = root?.querySelectorAll<HTMLButtonElement>("[data-copy-target]") ?? [];
+
+  const announce = (message: string, variant: Variant) => {
+    const node = template?.content.firstElementChild?.cloneNode(true);
+    if (!region || !(node instanceof HTMLElement)) return;
+
+    node.querySelector(`[data-toast-icon]:not([data-toast-icon="${variant}"])`)?.remove();
+    const slot = node.querySelector("[data-toast-message]");
+    if (slot) slot.textContent = message;
+    region.append(node);
+
+    window.setTimeout(() => {
+      node.setAttribute("data-leaving", "");
+      window.setTimeout(() => node.remove(), 200);
+    }, 2600);
+  };
+
+  for (const button of buttons) {
+    const targetId = button.dataset.copyTarget;
+    const source = targetId ? document.getElementById(targetId) : null;
+    if (!source) continue;
+
+    const select = () => {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(source);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    };
+
+    let copiedTimer: number | undefined;
+    const settle = (message: string, variant: Variant) => {
+      button.removeAttribute("data-busy");
+      if (variant === "manual") select();
+      if (variant === "ok") {
+        button.setAttribute("data-copied", "");
+        window.clearTimeout(copiedTimer);
+        copiedTimer = window.setTimeout(() => button.removeAttribute("data-copied"), 1200);
+      }
+      announce(message, variant);
+    };
+
+    button.addEventListener("click", () => {
+      if (button.hasAttribute("data-busy")) return;
+
+      const clipboard = navigator.clipboard;
+      if (!clipboard) {
+        settle("Press ⌘C to copy", "manual");
+        return;
+      }
+
+      button.setAttribute("data-busy", "");
+
+      void clipboard.writeText(source.textContent?.trim() ?? "").then(
+        () => settle("Copied to clipboard", "ok"),
+        () => settle("Press ⌘C to copy", "manual"),
+      );
+    });
+  }
+</script>

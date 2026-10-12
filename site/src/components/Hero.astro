@@ -1,0 +1,76 @@
+---
+import Mark from "./Mark.astro";
+import { RELEASES_URL, REPO_URL, version } from "../site";
+
+const words = ["skill", "subagent", "plugin", "marketplace", "MCP server"];
+---
+
+<section class="n-shell">
+  <div class="n-grid">
+    <div class="col-span-12 flex items-center gap-2.5 lg:col-span-10">
+      <Mark size={24} />
+      <span class="text-lg font-semibold tracking-tight text-text">Fettlr</span>
+      {
+        version && (
+          <span class="text-lg font-normal tracking-tight text-text-muted tabular-nums">{version}</span>
+        )
+      }
+    </div>
+
+    <h1 class="n-display col-span-12 text-text lg:col-span-10">
+      One window for every Claude&nbsp;Code{" "}
+      <span class="n-rotate" aria-hidden="true">
+        {
+          words.map((word, index) => (
+            <span class="n-rotate-word" data-active={index === 0 ? "" : undefined}>
+              <span class="text-blue-display">{word}</span>.
+            </span>
+          ))
+        }
+      </span>
+      <span class="sr-only">{words.join(", ")}.</span>
+    </h1>
+
+    <p class="n-lead col-span-12 mt-4 text-text-muted lg:col-span-6 lg:mt-6">
+      Skills, subagents, plugins, marketplaces, and MCP servers, at user level and per project. Know
+      what's stale and update it, park what you're not using, and edit a server without opening a
+      config file.
+    </p>
+
+    <p class="col-span-12 text-sm text-text-muted lg:col-span-8">
+      Free &middot; MIT-licensed &middot; Apple silicon &middot; macOS 13 or later
+    </p>
+
+    <div class="col-span-12 mt-3 flex flex-wrap items-center gap-x-7 gap-y-4">
+      <a href={RELEASES_URL} class="n-cta">Download for macOS</a>
+      <a href={REPO_URL} class="n-link">
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+  const slot = document.querySelector<HTMLElement>(".n-rotate");
+  const words = slot ? Array.from(slot.querySelectorAll<HTMLElement>(".n-rotate-word")) : [];
+  let index = 0;
+  if (words.length > 1) {
+    window.setInterval(() => {
+      if (document.hidden) return;
+      const leaving = words[index];
+      index = (index + 1) % words.length;
+      const entering = words[index];
+      leaving.removeAttribute("data-active");
+      leaving.setAttribute("data-leaving", "");
+      leaving.addEventListener(
+        "transitionend",
+        (event) => {
+          if (event.propertyName === "opacity") leaving.removeAttribute("data-leaving");
+        },
+        { once: true },
+      );
+      entering.removeAttribute("data-leaving");
+      entering.setAttribute("data-active", "");
+    }, 2800);
+  }
+</script>

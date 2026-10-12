@@ -1,0 +1,44 @@
+---
+import { RELEASES_URL, version } from "../site";
+
+interface Spec {
+  term: string;
+  value: string;
+}
+
+const spec: Spec[] = [
+  ...(version ? [{ term: "Version", value: version }] : []),
+  { term: "License", value: "MIT" },
+  { term: "Requires", value: "macOS 13 or later" },
+  { term: "Architecture", value: "Apple silicon" },
+];
+---
+
+<section class="n-shell">
+  <div class="n-close">
+    <div class="n-grid">
+      <div class="col-span-12 lg:col-span-6">
+        <h2 class="n-h2 text-accent-text">Free, and it stays free.</h2>
+        <p class="n-lead mt-4 text-text-muted">
+          No account, no license key, no paid tier waiting behind the next release.
+          Fettlr is open source: every line is on GitHub.
+          Use it at work, fork it, ship your own build. It asks nothing back.
+        </p>
+      </div>
+
+      <div class="col-span-12 lg:col-span-6 lg:col-start-7 flex flex-col lg:self-stretch justify-between">
+        <dl class="n-spec">
+          {
+            spec.map((row) => (
+              <div class="n-spec-row">
+                <dt class="text-text-muted">{row.term}</dt>
+                <dd class="tabular-nums text-text">{row.value}</dd>
+              </div>
+            ))
+          }
+        </dl>
+        <a href={RELEASES_URL} class="n-cta self-start mt-[clamp(1rem,2vw,1.5rem)]">Download for macOS</a>
+      </div>
+    </div>
+  </div>
+</section>

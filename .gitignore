@@ -1,0 +1,11 @@
+.*/
+!.github/
+!.well-known/
+.DS_Store
+docs/
+target/
+node_modules/
+dist/
+app/src-tauri/gen/schemas/
+app/src-tauri/icons/android/
+app/src-tauri/icons/ios/

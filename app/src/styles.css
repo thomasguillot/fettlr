@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@import "@fettlr/design-system/theme.css";
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-in-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes shell-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-shell-reveal {
+  animation: shell-reveal 380ms var(--ease-out);
+}
+
+.n-rail-glide {
+  transition:
+    width var(--duration-slow) var(--ease-in-out),
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out);
+}
+
+[data-palette="dracula"] [aria-current="page"] {
+  background-color: var(--color-blue);
+  color: var(--color-blue-contrast);
+}
+
+[data-palette="dracula"] [aria-current="page"]:hover {
+  background-color: var(--color-blue);
+  color: var(--color-blue-contrast);
+}
+
+[data-palette="dracula"] [aria-current="page"] * {
+  color: inherit;
+}
+
+[data-palette="dracula"] [aria-current="page"] .bg-blue {
+  background-color: currentColor;
+  --tw-ring-color: var(--color-blue);
+}
+
+[data-palette="high-contrast"] [aria-current="page"] {
+  background-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+[data-palette="high-contrast"] [aria-current="page"]:hover {
+  background-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+[data-palette="high-contrast"] [aria-current="page"] * {
+  color: inherit;
+}
+
+[data-palette="high-contrast"] [aria-current="page"] .bg-blue {
+  background-color: currentColor;
+  --tw-ring-color: var(--color-accent);
+}
+
+[data-palette="dracula"] [role="switch"][data-state="checked"] {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+}

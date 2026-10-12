@@ -1,0 +1,47 @@
+---
+const outcomes = [
+  {
+    title: "One place for all of it",
+    body: "Skills, subagents, plugins, marketplaces, and MCP servers, at user level and for every project Claude Code knows about. Read from the files that are already there, so there is no import step and no second source of truth.",
+  },
+  {
+    title: "Stale is obvious",
+    body: "Marketplaces behind their remote, plugins on an older version, skills behind their git upstream, MCP packages with a newer release. Checked on launch or on your own interval. Update one, or update everything at once.",
+  },
+  {
+    title: "Turn things off without losing them",
+    body: "Disabling parks a skill or subagent aside instead of removing it, and deleting moves it to the Trash. Trying a leaner setup for a week costs you nothing.",
+  },
+  {
+    title: "MCP servers without the JSON",
+    body: "User, project, and local scope side by side, plus the servers your plugins bring with them. Add or edit one through a form. Environment variables and headers stay masked on screen and never reach a log.",
+  },
+  {
+    title: "Your setup stays in your hands",
+    body: "Fettlr shells out to the claude binary wherever a command exists, and writes files itself only where none does. It never signs anything, never installs a background helper, and never deletes a skill outright: removals go to the Trash.",
+  },
+];
+---
+
+<section id="what" class="n-shell">
+  <div class="n-grid">
+    <h2 class="n-h2 col-span-12 text-accent-text lg:col-span-10">
+      One set of controls for everything Claude&nbsp;Code scattered.
+    </h2>
+    <p class="n-lead col-span-12 text-text-muted lg:col-span-6 lg:col-start-1">
+      Skills in one folder, plugins in another, marketplaces as git clones, MCP servers spread across
+      config files. Fettlr reads all of it where it already lives.
+    </p>
+  </div>
+
+  <ul class="mt-[clamp(2.5rem,5vw,4rem)]">
+    {
+      outcomes.map(({ title, body }) => (
+        <li class="n-outcome n-grid">
+          <h3 class="n-h3 col-span-12 text-text lg:col-span-5">{title}</h3>
+          <p class="col-span-12 max-w-prose text-text-muted lg:col-span-6 lg:col-start-7">{body}</p>
+        </li>
+      ))
+    }
+  </ul>
+</section>

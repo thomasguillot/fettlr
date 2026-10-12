@@ -1,0 +1,11 @@
+Checking MCP server health…
+
+claude.ai Notion: https://mcp.notion.com/mcp - ✔ Connected
+claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
+claude.ai Linear: https://mcp.linear.app/mcp - ✘ Failed to connect
+plugin:context7:context7: https://mcp.context7.com/mcp (HTTP) - ✔ Connected
+plugin:accesslint:accesslint: npx -y @accesslint/mcp@latest - ✔ Connected
+context-a8c: npx -y @automattic/mcp-context-a8c - ✔ Connected
+newspack-shots: /Applications/Newspack Shots.app/Contents/MacOS/NewspackShots --mcp - ✔ Connected
+chrome-devtools: npx -y chrome-devtools-mcp --executablePath /Applications/Google Chrome.app/Contents/MacOS/Google Chrome - ✔ Connected
+figma-project: npx -y figma-mcp - ⏸ Pending approval

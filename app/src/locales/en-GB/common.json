@@ -28,6 +28,8 @@
     "refreshing": "Refreshing",
     "update": "Update",
     "updating": "Updating",
+    "updated": "Updated",
+    "updateFailed": "Couldn't update",
     "newSessionsNote": "Changes apply to new Claude Code sessions.",
     "needsUpdatingTotal_one": "{{count}} item needs updating",
     "needsUpdatingTotal_other": "{{count}} items need updating",
@@ -114,20 +116,11 @@
     "kindMcpServer": "MCP server"
   },
   "updateAll": {
-    "title": "Updating everything",
-    "description": "Marketplaces, then plugins, then skills, one at a time.",
-    "progress": "{{done}} of {{total}}",
-    "preparing": "Preparing to update",
-    "success": "Everything is up to date.",
-    "failuresTitle": "Some items could not be updated",
+    "failed_one": "{{count}} item couldn't be updated.",
+    "failed_other": "{{count}} items couldn't be updated.",
     "failureMarketplace": "Couldn't update the marketplace {{name}}: {{error}}",
     "failurePlugin": "Couldn't update the plugin {{name}}: {{error}}",
-    "failureSkill": "Couldn't update the skill {{name}}: {{error}}",
-    "commandFailed": "Update all failed. See the error dialog for details.",
-    "done": "Done",
-    "titleDone": "Update finished",
-    "titleFailed": "Update failed",
-    "summary": "Updated {{done}} of {{total}}."
+    "failureSkill": "Couldn't update the skill {{name}}: {{error}}"
   },
   "onboarding": {
     "title": "Fettlr can't find Claude Code",

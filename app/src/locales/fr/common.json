@@ -28,6 +28,8 @@
     "refreshing": "Actualisation",
     "update": "Mettre à jour",
     "updating": "Mise à jour en cours",
+    "updated": "Mis à jour",
+    "updateFailed": "Échec de la mise à jour",
     "newSessionsNote": "Les modifications s'appliquent aux nouvelles sessions Claude Code.",
     "needsUpdatingTotal_one": "{{count}} élément à mettre à jour",
     "needsUpdatingTotal_other": "{{count}} éléments à mettre à jour",
@@ -114,20 +116,11 @@
     "kindMcpServer": "Serveur MCP"
   },
   "updateAll": {
-    "title": "Mise à jour de tout",
-    "description": "Places de marché, puis extensions, puis compétences, une à la fois.",
-    "progress": "{{done}} sur {{total}}",
-    "preparing": "Préparation de la mise à jour",
-    "success": "Tout est à jour.",
-    "failuresTitle": "Certains éléments n'ont pas pu être mis à jour",
+    "failed_one": "{{count}} élément n'a pas pu être mis à jour.",
+    "failed_other": "{{count}} éléments n'ont pas pu être mis à jour.",
     "failureMarketplace": "Impossible de mettre à jour la place de marché {{name}} : {{error}}",
     "failurePlugin": "Impossible de mettre à jour l'extension {{name}} : {{error}}",
-    "failureSkill": "Impossible de mettre à jour la compétence {{name}} : {{error}}",
-    "commandFailed": "Échec de la mise à jour globale. Consultez la boîte de dialogue d'erreur pour plus de détails.",
-    "done": "Terminé",
-    "titleDone": "Mise à jour terminée",
-    "titleFailed": "Échec de la mise à jour",
-    "summary": "{{done}} sur {{total}} mis à jour."
+    "failureSkill": "Impossible de mettre à jour la compétence {{name}} : {{error}}"
   },
   "onboarding": {
     "title": "Fettlr ne trouve pas Claude Code",

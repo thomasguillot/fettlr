@@ -412,14 +412,13 @@ impl Fettlr {
     pub fn update_all(&self, progress: &dyn Fn(UpdateProgress)) -> Result<Snapshot, CoreError> {
         let cached = self.snapshot();
         let items = stale_items(&cached);
-        let total = items.len();
         let mut failures = Vec::new();
 
-        for (index, item) in items.iter().enumerate() {
+        for item in &items {
             progress(UpdateProgress {
-                completed: index,
-                total,
-                name: item.display_name().to_string(),
+                kind: item.kind(),
+                id: item.id().to_string(),
+                stage: UpdateStage::Running,
             });
             let outcome = match item {
                 StaleItem::Marketplace { name } => self.cli.update_marketplace(Some(name)),
@@ -428,6 +427,16 @@ impl Fettlr {
                 } => self.cli.update_plugin(plugin_id, scope),
                 StaleItem::Skill { path, .. } => self.git.pull_ff_only(path),
             };
+            let stage = if outcome.is_ok() {
+                UpdateStage::Updated
+            } else {
+                UpdateStage::Failed
+            };
+            progress(UpdateProgress {
+                kind: item.kind(),
+                id: item.id().to_string(),
+                stage,
+            });
             if let Err(error) = outcome {
                 failures.push(UpdateFailure {
                     kind: item.kind(),
@@ -446,9 +455,16 @@ impl Fettlr {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct UpdateProgress {
-    pub completed: usize,
-    pub total: usize,
-    pub name: String,
+    pub kind: UpdateItemKind,
+    pub id: String,
+    pub stage: UpdateStage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum UpdateStage {
+    Running,
+    Updated,
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -472,11 +488,13 @@ enum StaleItem {
         name: String,
     },
     Plugin {
+        id: String,
         plugin_id: String,
         scope: Scope,
         display_name: String,
     },
     Skill {
+        id: String,
         path: PathBuf,
         name: String,
     },
@@ -510,6 +528,13 @@ impl StaleItem {
             StaleItem::Marketplace { name } => name,
             StaleItem::Plugin { display_name, .. } => display_name,
             StaleItem::Skill { name, .. } => name,
+        }
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            StaleItem::Marketplace { name } => name,
+            StaleItem::Plugin { id, .. } | StaleItem::Skill { id, .. } => id,
         }
     }
 
@@ -552,6 +577,7 @@ fn stale_items(snapshot: &Snapshot) -> Vec<StaleItem> {
                 .is_some_and(UpdateState::is_stale)
         {
             items.push(StaleItem::Plugin {
+                id: plugin.id(),
                 plugin_id: plugin.plugin_id.clone(),
                 scope: plugin.scope.clone(),
                 display_name: plugin.name.clone(),
@@ -567,6 +593,7 @@ fn stale_items(snapshot: &Snapshot) -> Vec<StaleItem> {
                 .is_some_and(UpdateState::is_stale)
         {
             items.push(StaleItem::Skill {
+                id: skill.id.clone(),
                 path: skill.path.clone(),
                 name: skill.name.clone(),
             });

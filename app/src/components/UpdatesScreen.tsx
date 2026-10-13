@@ -9,7 +9,7 @@ import {
   TableRow,
   cn,
 } from "@fettlr/design-system";
-import { RiCheckboxCircleLine, RiLoader4Line, RiPuzzleLine, RiRefreshLine } from "@remixicon/react";
+import { RiAlertLine, RiArrowUpCircleLine, RiCheckLine, RiCheckboxCircleLine, RiLoader4Line, RiPuzzleLine, RiRefreshLine } from "@remixicon/react";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -21,7 +21,6 @@ import { describeUpdateState } from "../updateState";
 import { EmptyState } from "./EmptyState";
 import { StaleBadge } from "./badges";
 import { ScreenShell, contentFrame, formatTimestamp, framedTable, screenColumn, stickyHeaderScrollArea, stickyTableHeader } from "./screen";
-import { UpdateAllSheet } from "./UpdateAllSheet";
 import { repinMcpServer } from "./mcp/mcpConfig";
 
 type UpdateRow = {
@@ -38,6 +37,9 @@ export function UpdatesScreen() {
   const snapshot = useFettlr((state) => state.snapshot);
   const dispatch = useFettlr((state) => state.dispatch);
   const busy = useFettlr((state) => state.busy);
+  const updateRun = useFettlr((state) => state.updateRun);
+  const runUpdateAll = useFettlr((state) => state.runUpdateAll);
+  const runActive = updateRun?.phase === "running";
   const navigateToItem = useFettlr((state) => state.navigateToItem);
   const warnings = snapshot?.warnings ?? [];
   const [refreshing, setRefreshing] = useState(false);
@@ -172,7 +174,16 @@ export function UpdatesScreen() {
             )}
             {refreshing ? t("common.refreshing") : t("common.refresh")}
           </Button>
-          <UpdateAllSheet staleTotal={updateAllTotal} />
+          {updateAllTotal > 0 || runActive ? (
+            <Button type="button" onClick={() => void runUpdateAll()} disabled={updateAllTotal === 0 || busy || runActive}>
+              {runActive ? (
+                <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RiArrowUpCircleLine className="size-4" aria-hidden="true" />
+              )}
+              {t("updates.updateAll", { count: updateAllTotal })}
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -204,40 +215,54 @@ export function UpdatesScreen() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="truncate font-medium text-text">{row.name}</TableCell>
-                      <TableCell className={cn("truncate text-text-muted", columns.kind)}>
-                        {t(`updates.kind${capitalize(row.kind)}`)}
-                      </TableCell>
-                      <TableCell className={cn("overflow-hidden", columns.status)}>
-                        <StaleBadge>{row.detail}</StaleBadge>
-                      </TableCell>
-                      <TableCell className={cn("text-right", columns.action)}>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={busy || updatingId !== null || row.action === null}
-                          onClick={() => row.action?.(row.id)}
-                          className="relative"
-                        >
-                          <span className={cn(updatingId === row.id && "invisible")}>
-                            {t(row.actionKey)}
-                          </span>
-                          {updatingId === row.id ? (
-                            <>
-                              <RiLoader4Line
-                                className="absolute inset-0 m-auto size-4 animate-spin"
-                                aria-hidden="true"
-                              />
-                              <span className="sr-only">{t("common.updating")}</span>
-                            </>
-                          ) : null}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {rows.map((row) => {
+                    const stage = updateRun?.items[row.id];
+                    const spinning = updatingId === row.id || stage === "running";
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell className="truncate font-medium text-text">{row.name}</TableCell>
+                        <TableCell className={cn("truncate text-text-muted", columns.kind)}>
+                          {t(`updates.kind${capitalize(row.kind)}`)}
+                        </TableCell>
+                        <TableCell className={cn("overflow-hidden", columns.status)}>
+                          <StaleBadge>{row.detail}</StaleBadge>
+                        </TableCell>
+                        <TableCell className={cn("text-right", columns.action)}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy || runActive || updatingId !== null || row.action === null}
+                            onClick={() => row.action?.(row.id)}
+                            className="relative"
+                          >
+                            <span className={cn((spinning || stage === "updated" || stage === "failed") && "invisible")}>
+                              {t(row.actionKey)}
+                            </span>
+                            {spinning ? (
+                              <>
+                                <RiLoader4Line
+                                  className="absolute inset-0 m-auto size-4 animate-spin"
+                                  aria-hidden="true"
+                                />
+                                <span className="sr-only">{t("common.updating")}</span>
+                              </>
+                            ) : stage === "updated" ? (
+                              <>
+                                <RiCheckLine className="absolute inset-0 m-auto size-4 text-success-text" aria-hidden="true" />
+                                <span className="sr-only">{t("common.updated")}</span>
+                              </>
+                            ) : stage === "failed" ? (
+                              <>
+                                <RiAlertLine className="absolute inset-0 m-auto size-4 text-danger-text" aria-hidden="true" />
+                                <span className="sr-only">{t("common.updateFailed")}</span>
+                              </>
+                            ) : null}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>

@@ -14,7 +14,7 @@ const DOMAINS: Domain[] = [
   { label: "Subagents", icon: "robot", count: 12, stale: 0 },
   { label: "Plugins", icon: "blocks", count: 19, stale: 1 },
   { label: "Marketplaces", icon: "store", count: 11, stale: 1 },
-  { label: "MCP Servers", icon: "server", count: 17, stale: 1 },
+  { label: "MCP Servers", icon: "server", count: 17, stale: 0 },
   { label: "Connectors", icon: "globe", count: 3, stale: 0 },
 ];
 
@@ -25,7 +25,6 @@ const STALE_ROWS = [
   { name: "changelog-writer", kind: "Skill", detail: "2 commits behind" },
   { name: "pdf-tools", kind: "Skill", detail: "1 commit behind" },
   { name: "image-tools", kind: "Skill", detail: "6 commits behind" },
-  { name: "context-server", kind: "MCP server", detail: "2.1.0 → 2.3.1" },
 ];
 
 const NAV: Domain[] = DOMAINS;
@@ -165,7 +164,7 @@ const press = "n-rail-toggle active:scale-[0.97] group-data-[collapsed]:active:s
           </span>
           <span class={`n-part ${primaryButton}`} style={cue(48)}>
             <Icon name="circleArrowUp" class="size-4 shrink-0" />
-            Update all ({STALE_ROWS.filter((row) => row.kind !== "MCP server").length})
+            Update all ({STALE_ROWS.length})
           </span>
         </span>
       </div>

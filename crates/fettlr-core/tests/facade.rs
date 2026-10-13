@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient, FakeTrasher, TempTree};
 use fettlr_core::{
-    CliOutput, CliRunner, CoreError, Fettlr, Scope, UpdateItemKind, UpdateProgress, Watcher,
+    CliOutput, CliRunner, CoreError, Fettlr, Scope, UpdateItemKind, UpdateProgress, UpdateStage,
+    Watcher,
 };
 use serde_json::json;
 
@@ -514,14 +515,29 @@ mod mutations {
         fettlr.refresh().expect("refresh succeeds");
         fettlr.check_updates().expect("check_updates succeeds");
 
+        let current = fettlr.snapshot();
+        let plugin_id = current
+            .plugins
+            .iter()
+            .find(|plugin| plugin.name == "widgets")
+            .expect("widgets plugin")
+            .id();
+        let skill_id = current
+            .skills
+            .iter()
+            .find(|skill| skill.name == "my-skill")
+            .expect("my-skill")
+            .id
+            .clone();
+
         let progress = Arc::new(Mutex::new(Vec::new()));
         let recorder = progress.clone();
         let snapshot = fettlr
             .update_all(&move |update: UpdateProgress| {
                 recorder.lock().expect("lock poisoned").push((
-                    update.completed,
-                    update.total,
-                    update.name,
+                    update.kind,
+                    update.id,
+                    update.stage,
                 ));
             })
             .expect("update_all succeeds even with one failed item");
@@ -530,9 +546,28 @@ mod mutations {
         assert_eq!(
             recorded,
             vec![
-                (0, 3, "acme".to_string()),
-                (1, 3, "widgets".to_string()),
-                (2, 3, "my-skill".to_string()),
+                (
+                    UpdateItemKind::Marketplace,
+                    "acme".to_string(),
+                    UpdateStage::Running
+                ),
+                (
+                    UpdateItemKind::Marketplace,
+                    "acme".to_string(),
+                    UpdateStage::Updated
+                ),
+                (
+                    UpdateItemKind::Plugin,
+                    plugin_id.clone(),
+                    UpdateStage::Running
+                ),
+                (UpdateItemKind::Plugin, plugin_id, UpdateStage::Failed),
+                (
+                    UpdateItemKind::Skill,
+                    skill_id.clone(),
+                    UpdateStage::Running
+                ),
+                (UpdateItemKind::Skill, skill_id, UpdateStage::Updated),
             ]
         );
         assert_eq!(snapshot.update_failures.len(), 1);

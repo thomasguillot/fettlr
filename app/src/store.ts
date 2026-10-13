@@ -12,8 +12,9 @@ import {
   type UiPalette,
   type UiPrefs,
   type UiSnapshot,
+  type UiUpdateFailure,
   type UiUpdateReport,
-  type UpdateProgress,
+  type UiUpdateStage,
 } from "./bindings";
 import { type SectionId, staleTotal } from "./sections";
 
@@ -55,6 +56,13 @@ export type CommandResult<T> =
   | { status: "ok"; data: T }
   | { status: "error"; error: UiError };
 
+export type UpdateRun = {
+  phase: "running" | "finished";
+  items: Record<string, UiUpdateStage>;
+  attempted: number;
+  failures: UiUpdateFailure[];
+};
+
 type FettlrState = {
   snapshot: UiSnapshot | null;
   busy: boolean;
@@ -63,7 +71,7 @@ type FettlrState = {
   error: UiError | null;
   selection: SectionId;
   detail: Record<DetailSection, DetailPane>;
-  progress: UpdateProgress | null;
+  updateRun: UpdateRun | null;
   prefs: UiPrefs | null;
   panel: Panel | null;
   appUpdate: AppUpdateState;
@@ -87,6 +95,8 @@ type FettlrState = {
   installAppUpdate: () => Promise<void>;
   checkContentUpdatesInBackground: () => Promise<void>;
   dispatch: <T>(command: Promise<CommandResult<T>>) => Promise<T | undefined>;
+  runUpdateAll: (attempted: number) => Promise<void>;
+  dismissUpdateRun: () => void;
 };
 
 // bindings.ts re-throws when the rejection is an Error rather than a typed UiError, which is what
@@ -120,7 +130,7 @@ export const useFettlr = create<FettlrState>((set, get) => ({
   error: null,
   selection: "updates",
   detail: CLOSED_DETAIL,
-  progress: null,
+  updateRun: null,
   prefs: null,
   panel: null,
   findRequest: 0,
@@ -208,6 +218,26 @@ export const useFettlr = create<FettlrState>((set, get) => ({
     }
     set({ snapshot: result.data });
   },
+  runUpdateAll: async (attempted) => {
+    if (get().updateRun?.phase === "running") return;
+    set({ updateRun: { phase: "running", items: {}, attempted, failures: [] } });
+    const snapshot = await get().dispatch(commands.updateAll());
+    if (!snapshot) {
+      set({ updateRun: null });
+      return;
+    }
+    const failures = snapshot.updateFailures;
+    // update_all's own refresh() carries the previous update report forward untouched, so re-check
+    // here or the needs-updating list and sidebar badges stay stale after a real success.
+    await get().dispatch(commands.checkUpdates());
+    const current = get().updateRun;
+    if (failures.length === 0 || !current) {
+      set({ updateRun: null });
+    } else {
+      set({ updateRun: { ...current, phase: "finished", failures } });
+    }
+  },
+  dismissUpdateRun: () => set({ updateRun: null }),
   dispatch: async (command) => {
     set((state) => ({ inFlight: state.inFlight + 1, busy: true }));
     try {
@@ -225,13 +255,12 @@ export const useFettlr = create<FettlrState>((set, get) => ({
       return undefined;
     } finally {
       // Counted, not a flag: a short command finishing during a long one would otherwise
-      // declare the long one done, re-enabling every control and blanking its progress bar.
+      // declare the long one done, re-enabling every control.
       set((state) => {
         const inFlight = Math.max(state.inFlight - 1, 0);
         return {
           inFlight,
           busy: inFlight > 0,
-          progress: inFlight > 0 ? state.progress : null,
         };
       });
     }
@@ -294,7 +323,14 @@ export async function startEventBridge(): Promise<() => void> {
     useFettlr.setState({ snapshot: event.payload });
   });
   const stopUpdateProgress = await events.updateProgress.listen((event) => {
-    useFettlr.setState({ progress: event.payload });
+    const run = useFettlr.getState().updateRun;
+    if (!run) return;
+    useFettlr.setState({
+      updateRun: {
+        ...run,
+        items: { ...run.items, [`${event.payload.kind}:${event.payload.id}`]: event.payload.stage },
+      },
+    });
   });
   const stopAppUpdateProgress = await events.appUpdateProgress.listen((event) => {
     useFettlr.setState({ download: event.payload });

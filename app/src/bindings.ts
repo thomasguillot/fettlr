@@ -324,6 +324,8 @@ export type UiUpdateReport = {
 	checkedAt: string,
 };
 
+export type UiUpdateStage = "running" | "updated" | "failed";
+
 export type UiUpdateState = { kind: "unknown" } | { kind: "upToDate" } | { kind: "checking" } | { kind: "updateAvailable"; installed: string; latest: string } | { kind: "behind"; commits: number } | { kind: "tracksLatest" };
 
 /**
@@ -337,9 +339,9 @@ export type UiUsage = {
 };
 
 export type UpdateProgress = {
-	name: string,
-	done: number,
-	total: number,
+	kind: UiUpdateItemKind,
+	id: string,
+	stage: UiUpdateStage,
 };
 
 /* Tauri Specta runtime */

@@ -27,7 +27,7 @@ pub use discovery::{
     DiscoveredConfig, ProjectEntry, discover, ever_connected_connectors, plugin_skills,
     plugin_subagents,
 };
-pub use fettlr::{Fettlr, UpdateFailure, UpdateItemKind, UpdateProgress};
+pub use fettlr::{Fettlr, UpdateFailure, UpdateItemKind, UpdateProgress, UpdateStage};
 pub use frontmatter::parse_frontmatter;
 pub use json_store::{load_json_store, save_json_store};
 pub use mcp::{

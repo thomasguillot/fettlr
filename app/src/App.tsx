@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { commands } from "./bindings";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorDialog } from "./components/ErrorDialog";
+import { UpdateFailuresSheet } from "./components/UpdateFailuresSheet";
 import { MarketplacesList } from "./components/marketplaces/MarketplacesList";
 import { ConnectorsScreen } from "./components/connectors/ConnectorsScreen";
 import { McpList } from "./components/mcp/McpList";
@@ -132,6 +133,7 @@ export function App() {
           </>
         )}
         <SearchPalette />
+        <UpdateFailuresSheet />
         <ErrorDialog />
       </div>
     </TooltipProvider>

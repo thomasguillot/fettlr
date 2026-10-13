@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use fettlr_core::{
     ConnectorState, CoreError, MarketplaceRecord, McpConnector, McpOrigin, McpServer,
     McpServerConfig, ParkedSkill, ParkedSubagent, PluginRecord, ProjectEntry, Provenance, Scope,
-    Skill, Snapshot, StaleIds, Subagent, UpdateFailure, UpdateItemKind, UpdateReport, UpdateState,
-    Usage,
+    Skill, Snapshot, StaleIds, Subagent, UpdateFailure, UpdateItemKind, UpdateReport, UpdateStage,
+    UpdateState, Usage,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -820,6 +820,24 @@ impl From<UpdateItemKind> for UiUpdateItemKind {
             UpdateItemKind::Marketplace => UiUpdateItemKind::Marketplace,
             UpdateItemKind::Plugin => UiUpdateItemKind::Plugin,
             UpdateItemKind::Skill => UiUpdateItemKind::Skill,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum UiUpdateStage {
+    Running,
+    Updated,
+    Failed,
+}
+
+impl From<UpdateStage> for UiUpdateStage {
+    fn from(stage: UpdateStage) -> Self {
+        match stage {
+            UpdateStage::Running => UiUpdateStage::Running,
+            UpdateStage::Updated => UiUpdateStage::Updated,
+            UpdateStage::Failed => UiUpdateStage::Failed,
         }
     }
 }

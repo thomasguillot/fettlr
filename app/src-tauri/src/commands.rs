@@ -12,8 +12,8 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_specta::Event;
 
 use crate::dto::{
-    UiError, UiMcpInput, UiPrefs, UiScope, UiSecretField, UiSnapshot, redact, reveal_field,
-    secret_values,
+    UiError, UiMcpInput, UiPrefs, UiScope, UiSecretField, UiSnapshot, UiUpdateItemKind,
+    UiUpdateStage, redact, reveal_field, secret_values,
 };
 use crate::prefs::Prefs;
 use crate::state::AppState;
@@ -77,9 +77,9 @@ pub struct StateChanged(pub UiSnapshot);
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProgress {
-    pub name: String,
-    pub done: u32,
-    pub total: u32,
+    pub kind: UiUpdateItemKind,
+    pub id: String,
+    pub stage: UiUpdateStage,
 }
 
 type Answer<T> = Result<T, UiError>;
@@ -595,9 +595,9 @@ pub async fn update_all(app: AppHandle, state: State<'_, Arc<AppState>>) -> Answ
     blocking(move || {
         let report = |progress: fettlr_core::UpdateProgress| {
             let event = UpdateProgress {
-                name: progress.name,
-                done: progress.completed as u32,
-                total: progress.total as u32,
+                kind: progress.kind.into(),
+                id: progress.id,
+                stage: progress.stage.into(),
             };
             if let Err(error) = event.emit(&app) {
                 log::warn!("could not report update progress: {error}");

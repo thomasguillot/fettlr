@@ -116,12 +116,11 @@
     "kindMcpServer": "Serveur MCP"
   },
   "updateAll": {
-    "failuresTitle": "Certains éléments n'ont pas pu être mis à jour",
+    "failed_one": "{{count}} élément n'a pas pu être mis à jour.",
+    "failed_other": "{{count}} éléments n'ont pas pu être mis à jour.",
     "failureMarketplace": "Impossible de mettre à jour la place de marché {{name}} : {{error}}",
     "failurePlugin": "Impossible de mettre à jour l'extension {{name}} : {{error}}",
-    "failureSkill": "Impossible de mettre à jour la compétence {{name}} : {{error}}",
-    "done": "Terminé",
-    "summary": "{{done}} sur {{total}} mis à jour."
+    "failureSkill": "Impossible de mettre à jour la compétence {{name}} : {{error}}"
   },
   "onboarding": {
     "title": "Fettlr ne trouve pas Claude Code",

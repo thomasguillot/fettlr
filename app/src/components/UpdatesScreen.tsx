@@ -175,7 +175,7 @@ export function UpdatesScreen() {
             {refreshing ? t("common.refreshing") : t("common.refresh")}
           </Button>
           {updateAllTotal > 0 || runActive ? (
-            <Button type="button" onClick={() => void runUpdateAll(updateAllTotal)} disabled={updateAllTotal === 0 || busy || runActive}>
+            <Button type="button" onClick={() => void runUpdateAll()} disabled={updateAllTotal === 0 || busy || runActive}>
               {runActive ? (
                 <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
               ) : (

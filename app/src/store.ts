@@ -12,11 +12,11 @@ import {
   type UiPalette,
   type UiPrefs,
   type UiSnapshot,
-  type UiUpdateFailure,
   type UiUpdateReport,
   type UiUpdateStage,
 } from "./bindings";
 import { type SectionId, staleTotal } from "./sections";
+import { failureKey } from "./updateFailures";
 
 export type DetailSection =
   | "skills"
@@ -59,8 +59,6 @@ export type CommandResult<T> =
 export type UpdateRun = {
   phase: "running" | "finished";
   items: Record<string, UiUpdateStage>;
-  attempted: number;
-  failures: UiUpdateFailure[];
 };
 
 type FettlrState = {
@@ -95,8 +93,7 @@ type FettlrState = {
   installAppUpdate: () => Promise<void>;
   checkContentUpdatesInBackground: () => Promise<void>;
   dispatch: <T>(command: Promise<CommandResult<T>>) => Promise<T | undefined>;
-  runUpdateAll: (attempted: number) => Promise<void>;
-  dismissUpdateRun: () => void;
+  runUpdateAll: () => Promise<void>;
 };
 
 // bindings.ts re-throws when the rejection is an Error rather than a typed UiError, which is what
@@ -152,7 +149,11 @@ export const useFettlr = create<FettlrState>((set, get) => ({
     })),
   reveal: (section, id) =>
     set((state) => ({ revealRequest: { section, id, seq: (state.revealRequest?.seq ?? 0) + 1 } })),
-  clearError: () => set({ error: null }),
+  clearError: () =>
+    set((state) => ({
+      error: null,
+      ...(state.updateRun?.phase === "finished" ? { updateRun: null } : {}),
+    })),
   setPanel: (panel) => set({ panel }),
   requestFind: () => set((state) => ({ findRequest: state.findRequest + 1 })),
   loadPrefs: async () => {
@@ -218,9 +219,9 @@ export const useFettlr = create<FettlrState>((set, get) => ({
     }
     set({ snapshot: result.data });
   },
-  runUpdateAll: async (attempted) => {
+  runUpdateAll: async () => {
     if (get().updateRun?.phase === "running") return;
-    set({ updateRun: { phase: "running", items: {}, attempted, failures: [] } });
+    set({ updateRun: { phase: "running", items: {} } });
     const snapshot = await get().dispatch(commands.updateAll());
     if (!snapshot) {
       set({ updateRun: null });
@@ -234,10 +235,17 @@ export const useFettlr = create<FettlrState>((set, get) => ({
     if (failures.length === 0 || !current) {
       set({ updateRun: null });
     } else {
-      set({ updateRun: { ...current, phase: "finished", failures } });
+      set({
+        updateRun: { ...current, phase: "finished" },
+        error: {
+          message: t("updateAll.failed", { count: failures.length }),
+          detail: failures
+            .map((failure) => t(failureKey(failure.kind), { name: failure.name, error: failure.error }))
+            .join("\n\n"),
+        },
+      });
     }
   },
-  dismissUpdateRun: () => set({ updateRun: null }),
   dispatch: async (command) => {
     set((state) => ({ inFlight: state.inFlight + 1, busy: true }));
     try {

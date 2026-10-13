@@ -116,12 +116,11 @@
     "kindMcpServer": "MCP server"
   },
   "updateAll": {
-    "failuresTitle": "Some items could not be updated",
+    "failed_one": "{{count}} item couldn't be updated.",
+    "failed_other": "{{count}} items couldn't be updated.",
     "failureMarketplace": "Couldn't update the marketplace {{name}}: {{error}}",
     "failurePlugin": "Couldn't update the plugin {{name}}: {{error}}",
-    "failureSkill": "Couldn't update the skill {{name}}: {{error}}",
-    "done": "Done",
-    "summary": "Updated {{done}} of {{total}}."
+    "failureSkill": "Couldn't update the skill {{name}}: {{error}}"
   },
   "onboarding": {
     "title": "Fettlr can't find Claude Code",

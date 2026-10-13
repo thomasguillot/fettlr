@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import en from "../locales/en/common.json";
-import { failureKey } from "./UpdateFailuresSheet";
+import { failureKey } from "../updateFailures";
 
 function lookup(key: string): unknown {
   return key.split(".").reduce<unknown>((node, part) => {

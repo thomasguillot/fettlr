@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use fettlr_core::testing::TempTree;
-use fettlr_core::{AccountSkillBehind, Provenance, Scope, Skill, account_skills_behind, discover};
+use fettlr_core::{
+    AccountSkillBehind, Provenance, Scope, Skill, SkillsCliOrigin, StaleIds, account_skills_behind,
+    discover,
+};
 use serde_json::{Value, json};
 
 const UPDATED: &str = "2026-10-24T12:57:30.617177Z";
@@ -506,7 +509,42 @@ fn behind(account: &Skill, local: &Skill, version: Option<&str>) -> Vec<AccountS
 
 fn judge(skills: &[&Skill]) -> Vec<AccountSkillBehind> {
     let owned: Vec<Skill> = skills.iter().map(|s| (*s).clone()).collect();
-    account_skills_behind(&owned)
+    account_skills_behind(&owned, &StaleIds::default())
+}
+
+fn judge_with(skills: &[&Skill], stale: &StaleIds) -> Vec<AccountSkillBehind> {
+    let owned: Vec<Skill> = skills.iter().map(|s| (*s).clone()).collect();
+    account_skills_behind(&owned, stale)
+}
+
+fn skills_cli_copy(tree: &TempTree, markdown: &str) -> Skill {
+    let link: PathBuf = tree.make_skills_cli_skill("impeccable");
+    let canonical = tree.paths.skills_cli_skills_dir().join("impeccable");
+    tree.write(markdown, &canonical.join("SKILL.md"));
+    Skill {
+        id: "user/impeccable".into(),
+        name: "impeccable".into(),
+        title: Some("impeccable".into()),
+        summary: None,
+        scope: Scope::User,
+        provenance: Provenance::SkillsCli(SkillsCliOrigin {
+            source: "owner/skills".into(),
+            source_type: "github".into(),
+            source_url: None,
+            reference: None,
+            folder: "skills/impeccable".into(),
+            folder_hash: "abc".into(),
+        }),
+        path: link,
+    }
+}
+
+fn a_day_old(skill: &Skill) {
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_secs();
+    set_mtime(&skill.path, now - 86_400);
 }
 
 fn future_updated_at() -> String {
@@ -778,4 +816,81 @@ fn a_skills_cli_skill_is_read_through_its_link() {
     };
 
     assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("2.0.0")));
+}
+
+#[test]
+fn an_unversioned_skills_cli_copy_supersedes_an_older_upload() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let c = skills_cli_copy(&tree, &markdown(None, true, "new"));
+    a_day_old(&c);
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, None));
+}
+
+#[test]
+fn an_unversioned_plugin_copy_supersedes_an_older_upload() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let c = plugin_copy(&tree, &markdown(None, true, "new"));
+    a_day_old(&c);
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, None));
+}
+
+#[test]
+fn an_unversioned_local_copy_still_needs_a_later_edit() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let c = user_copy(&tree, &markdown(None, true, "new"));
+    a_day_old(&c);
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_stale_managed_copy_falls_back_to_the_timestamp_rule() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let cli = skills_cli_copy(&tree, &markdown(None, true, "new"));
+    a_day_old(&cli);
+    let stale = StaleIds {
+        skills: vec![cli.id.clone()],
+        ..StaleIds::default()
+    };
+
+    assert!(judge_with(&[&a, &cli], &stale).is_empty());
+
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let plugin = plugin_copy(&tree, &markdown(None, true, "new"));
+    a_day_old(&plugin);
+    let stale = StaleIds {
+        plugins: vec!["impeccable@impeccable#user".into()],
+        ..StaleIds::default()
+    };
+
+    assert!(judge_with(&[&a, &plugin], &stale).is_empty());
+}
+
+#[test]
+fn identical_managed_content_is_never_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), &future_updated_at());
+    let c = skills_cli_copy(&tree, &markdown(None, true, "body"));
+    a_day_old(&c);
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_managed_win_beats_an_unversioned_timestamp_win() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let user = user_copy(&tree, &markdown(None, true, "u"));
+    set_mtime(&user.path, UPLOADED as u64 + 5_000);
+    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    set_mtime(&plugin.path, UPLOADED as u64 - 86_400);
+
+    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &plugin, None));
 }

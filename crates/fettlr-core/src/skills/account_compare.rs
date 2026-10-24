@@ -9,7 +9,7 @@ use crate::civil_time::parse_rfc3339;
 use crate::frontmatter::{markdown_body, parse_frontmatter};
 use crate::models::Scope;
 use crate::skills::{Provenance, Skill, skill_files};
-use crate::updates::{is_older, numeric_fields};
+use crate::updates::{StaleIds, is_older, numeric_fields};
 
 const UNTRUSTED_EDIT_WINDOW_SECONDS: i64 = 300;
 
@@ -42,11 +42,11 @@ impl SkillCopy<'_> {
     }
 }
 
-pub fn account_skills_behind(skills: &[Skill]) -> Vec<AccountSkillBehind> {
+pub fn account_skills_behind(skills: &[Skill], stale: &StaleIds) -> Vec<AccountSkillBehind> {
     let mut found: Vec<AccountSkillBehind> = skills
         .iter()
         .filter_map(|skill| match &skill.provenance {
-            Provenance::Account { updated_at } => behind(skill, updated_at, skills),
+            Provenance::Account { updated_at } => behind(skill, updated_at, skills, stale),
             _ => None,
         })
         .collect();
@@ -54,7 +54,12 @@ pub fn account_skills_behind(skills: &[Skill]) -> Vec<AccountSkillBehind> {
     found
 }
 
-fn behind(account: &Skill, updated_at: &str, skills: &[Skill]) -> Option<AccountSkillBehind> {
+fn behind(
+    account: &Skill,
+    updated_at: &str,
+    skills: &[Skill],
+    stale: &StaleIds,
+) -> Option<AccountSkillBehind> {
     let account_copy = read_copy(account)?;
     let candidates: Vec<SkillCopy> = skills
         .iter()
@@ -70,8 +75,8 @@ fn behind(account: &Skill, updated_at: &str, skills: &[Skill]) -> Option<Account
     let uploaded = parse_rfc3339(updated_at);
     candidates
         .iter()
-        .filter(|candidate| is_newer(&account_copy, candidate, uploaded))
-        .max_by(|a, b| preference(a, b))
+        .filter(|candidate| is_newer(&account_copy, candidate, uploaded, stale))
+        .max_by(|a, b| preference(a, b, uploaded, stale))
         .map(|best| AccountSkillBehind {
             account_id: account.id.clone(),
             local_id: best.skill.id.clone(),
@@ -139,7 +144,12 @@ fn frontmatter_without_version(markdown: &str) -> BTreeMap<String, String> {
     fields
 }
 
-fn is_newer(account: &SkillCopy, local: &SkillCopy, uploaded: Option<i64>) -> bool {
+fn is_newer(
+    account: &SkillCopy,
+    local: &SkillCopy,
+    uploaded: Option<i64>,
+    stale: &StaleIds,
+) -> bool {
     match (&account.version, &local.version) {
         (Some(_), Some(_)) => match (account.fields(), local.fields()) {
             (Some(theirs), Some(ours)) => is_older(&theirs, &ours),
@@ -147,14 +157,29 @@ fn is_newer(account: &SkillCopy, local: &SkillCopy, uploaded: Option<i64>) -> bo
         },
         (None, Some(_)) => local.fields().is_some(),
         (Some(_), None) => false,
-        (None, None) => match (uploaded, local.newest_mtime()) {
-            (Some(uploaded), Some(edited)) => edited - uploaded > UNTRUSTED_EDIT_WINDOW_SECONDS,
-            _ => false,
-        },
+        (None, None) => edited_after(local, uploaded) || tracks_current_upstream(local, stale),
     }
 }
 
-fn preference(a: &SkillCopy, b: &SkillCopy) -> Ordering {
+fn edited_after(local: &SkillCopy, uploaded: Option<i64>) -> bool {
+    match (uploaded, local.newest_mtime()) {
+        (Some(uploaded), Some(edited)) => edited - uploaded > UNTRUSTED_EDIT_WINDOW_SECONDS,
+        _ => false,
+    }
+}
+
+fn tracks_current_upstream(copy: &SkillCopy, stale: &StaleIds) -> bool {
+    match &copy.skill.provenance {
+        Provenance::SkillsCli(_) => !stale.skills.contains(&copy.skill.id),
+        Provenance::Plugin { plugin_id } => {
+            let prefix = format!("{plugin_id}#");
+            !stale.plugins.iter().any(|id| id.starts_with(&prefix))
+        }
+        _ => false,
+    }
+}
+
+fn preference(a: &SkillCopy, b: &SkillCopy, uploaded: Option<i64>, stale: &StaleIds) -> Ordering {
     let by_version = match (a.fields(), b.fields()) {
         (Some(_), None) => Ordering::Greater,
         (None, Some(_)) => Ordering::Less,
@@ -170,6 +195,14 @@ fn preference(a: &SkillCopy, b: &SkillCopy) -> Ordering {
         (None, None) => Ordering::Equal,
     };
     by_version
+        .then_with(|| {
+            let by_rule = |copy: &SkillCopy| {
+                copy.version.is_none()
+                    && tracks_current_upstream(copy, stale)
+                    && !edited_after(copy, uploaded)
+            };
+            by_rule(a).cmp(&by_rule(b))
+        })
         .then_with(|| a.newest_mtime().cmp(&b.newest_mtime()))
         .then_with(|| b.skill.id.cmp(&a.skill.id))
 }

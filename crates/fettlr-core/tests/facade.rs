@@ -270,6 +270,42 @@ fn account_and_plugin_copy(tree: &TempTree) -> (PathBuf, Arc<ScriptedCliRunner>)
     (account, runner)
 }
 
+fn account_and_unversioned_plugin_copy(tree: &TempTree) -> Arc<ScriptedCliRunner> {
+    tree.write_account_manifest(
+        "b1",
+        1,
+        json!([{
+            "skillId": "skill_x",
+            "name": "impeccable",
+            "source": "plugin",
+            "updatedAt": "2099-01-01T00:00:00Z"
+        }]),
+    );
+    tree.make_account_skill(
+        "b1",
+        "impeccable",
+        "---\nname: impeccable\ndescription: d\n---\n\nold body\n",
+    );
+    tree.make_skill(
+        "impeccable",
+        &tree.plugin_skills_dir("impeccable"),
+        Some("---\nname: impeccable\ndescription: d\n---\n\nnew body\n"),
+        false,
+    );
+    let dir = tree.write_marketplace(
+        "impeccable",
+        json!({"source": "github", "repo": "impeccable/impeccable"}),
+        json!([{"name": "impeccable", "version": "4.8.0", "source": "./plugins/impeccable"}]),
+    );
+    tree.write_plugin_manifest(&dir, "./plugins/impeccable", Some("4.8.0"));
+    let install_path = tree.plugin_install_dir("impeccable").display().to_string();
+    let runner = Arc::new(ScriptedCliRunner::new());
+    runner.set_plugin_list(&format!(
+        r#"[{{"id": "impeccable@impeccable", "version": "4.7.1", "scope": "user", "enabled": true, "installPath": "{install_path}"}}]"#
+    ));
+    runner
+}
+
 mod refresh {
     use super::*;
 
@@ -289,6 +325,42 @@ mod refresh {
                 local_version: Some("4.7.1".into()),
             }]
         );
+    }
+
+    #[test]
+    fn check_updates_withdraws_a_flag_whose_managed_copy_turns_out_stale() {
+        let tree = TempTree::new();
+        let runner = account_and_unversioned_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+
+        let refreshed = fettlr.refresh().expect("refresh");
+        assert_eq!(refreshed.account_skills_behind.len(), 1);
+
+        let checked = fettlr.check_updates().expect("check_updates");
+
+        assert!(
+            checked
+                .update_report
+                .expect("report")
+                .stale_ids()
+                .plugins
+                .contains(&"impeccable@impeccable#user".to_string())
+        );
+        assert!(checked.account_skills_behind.is_empty());
+        assert!(fettlr.snapshot().account_skills_behind.is_empty());
+    }
+
+    #[test]
+    fn refresh_reads_the_last_report_when_judging_a_managed_copy() {
+        let tree = TempTree::new();
+        let runner = account_and_unversioned_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.check_updates().expect("check_updates");
+
+        let again = fettlr.refresh().expect("refresh");
+
+        assert!(again.account_skills_behind.is_empty());
     }
 
     #[test]

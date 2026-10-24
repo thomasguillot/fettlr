@@ -127,6 +127,9 @@ pub enum UiProvenance {
         #[serde(rename = "pluginId")]
         plugin_id: String,
     },
+    SkillsCli {
+        source: String,
+    },
 }
 
 impl From<&Provenance> for UiProvenance {
@@ -136,6 +139,9 @@ impl From<&Provenance> for UiProvenance {
             Provenance::GitClone => UiProvenance::GitClone,
             Provenance::Plugin { plugin_id } => UiProvenance::Plugin {
                 plugin_id: plugin_id.clone(),
+            },
+            Provenance::SkillsCli(origin) => UiProvenance::SkillsCli {
+                source: origin.source.clone(),
             },
         }
     }

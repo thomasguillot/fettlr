@@ -1196,4 +1196,155 @@ mod subagents {
             config.project_subagents[1].id
         );
     }
+
+    fn animate_entry() -> Value {
+        json!({
+            "animate": {
+                "source": "emilkowalski/skills",
+                "sourceType": "github",
+                "sourceUrl": "https://github.com/emilkowalski/skills.git",
+                "skillPath": "skills/animate/SKILL.md",
+                "skillFolderHash": "0123456789abcdef0123456789abcdef01234567"
+            }
+        })
+    }
+
+    fn user_skill<'a>(config: &'a DiscoveredConfig, name: &str) -> &'a fettlr_core::Skill {
+        config
+            .user_skills
+            .iter()
+            .find(|skill| skill.name == name)
+            .expect("skill is listed")
+    }
+
+    #[test]
+    fn a_linked_skill_with_a_lock_entry_is_a_skills_cli_skill() {
+        let tree = TempTree::new();
+        let link = tree.make_skills_cli_skill("animate");
+        tree.write_skills_lock(animate_entry());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        let skill = user_skill(&config, "animate");
+        assert_eq!(skill.id, "user/animate");
+        assert_eq!(skill.path, link);
+        let Provenance::SkillsCli(origin) = &skill.provenance else {
+            panic!("expected skills CLI provenance, got {:?}", skill.provenance);
+        };
+        assert_eq!(origin.source, "emilkowalski/skills");
+        assert_eq!(origin.folder, "skills/animate");
+    }
+
+    #[test]
+    fn a_real_folder_that_shares_a_lock_name_stays_local() {
+        let tree = TempTree::new();
+        tree.write(
+            "# animate\n",
+            &tree.paths.skills_dir().join("animate").join("SKILL.md"),
+        );
+        tree.write(
+            "# animate\n",
+            &tree
+                .paths
+                .skills_cli_skills_dir()
+                .join("animate")
+                .join("SKILL.md"),
+        );
+        tree.write_skills_lock(animate_entry());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
+    }
+
+    #[test]
+    fn a_link_to_somewhere_else_stays_local() {
+        let tree = TempTree::new();
+        let elsewhere = tree.root().join("elsewhere").join("animate");
+        tree.write("# animate\n", &elsewhere.join("SKILL.md"));
+        tree.make_directory(&tree.paths.skills_dir());
+        std::os::unix::fs::symlink(&elsewhere, tree.paths.skills_dir().join("animate"))
+            .expect("link skill");
+        tree.write(
+            "# animate\n",
+            &tree
+                .paths
+                .skills_cli_skills_dir()
+                .join("animate")
+                .join("SKILL.md"),
+        );
+        tree.write_skills_lock(animate_entry());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
+    }
+
+    #[test]
+    fn a_lock_only_skill_is_not_listed() {
+        let tree = TempTree::new();
+        tree.write(
+            "# find-skills\n",
+            &tree
+                .paths
+                .skills_cli_skills_dir()
+                .join("find-skills")
+                .join("SKILL.md"),
+        );
+        tree.write_skills_lock(json!({
+            "find-skills": {
+                "source": "vercel-labs/skills",
+                "sourceType": "github",
+                "skillPath": "skills/find-skills/SKILL.md",
+                "skillFolderHash": "0123456789abcdef0123456789abcdef01234567"
+            }
+        }));
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert!(
+            config
+                .user_skills
+                .iter()
+                .all(|skill| skill.name != "find-skills")
+        );
+    }
+
+    #[test]
+    fn an_unsupported_lock_version_lists_linked_skills_as_local_with_a_warning() {
+        let tree = TempTree::new();
+        tree.make_skills_cli_skill("animate");
+        tree.write(
+            &json!({"version": 4, "skills": animate_entry()}).to_string(),
+            &tree.paths.skills_cli_lock(),
+        );
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Fettlr does not recognise version 4 of"))
+        );
+    }
+
+    #[test]
+    fn a_malformed_lock_lists_linked_skills_as_local_with_a_warning() {
+        let tree = TempTree::new();
+        tree.make_skills_cli_skill("animate");
+        tree.write("{", &tree.paths.skills_cli_lock());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
+        let lock = tree.paths.skills_cli_lock().display().to_string();
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(&lock))
+        );
+    }
 }

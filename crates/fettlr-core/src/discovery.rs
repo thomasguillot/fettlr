@@ -9,7 +9,7 @@ use crate::cli_records::{CoreError, McpServerConfig, PluginRecord};
 use crate::frontmatter::parse_frontmatter;
 use crate::models::Scope;
 use crate::paths::Paths;
-use crate::skills::{Provenance, Skill};
+use crate::skills::{Provenance, Skill, SkillsLock, read_skills_lock};
 use crate::subagents::Subagent;
 use crate::usage::UsageIndex;
 
@@ -75,7 +75,8 @@ pub fn discover(paths: &Paths) -> Result<DiscoveredConfig, CoreError> {
     let user_mcp_servers = servers_from(root.get("mcpServers"), &location, &mut warnings);
     let projects = project_entries(root.get("projects"), &location, &mut warnings);
     let usage = UsageIndex::from_root(&root);
-    let user_skills = skills_in(&paths.skills_dir(), &Scope::User, true, &mut warnings);
+    let mut user_skills = skills_in(&paths.skills_dir(), &Scope::User, true, &mut warnings);
+    label_skills_cli_skills(&mut user_skills, paths, &mut warnings);
     let user_subagents = subagents_in(&paths.agents_dir(), &Scope::User, &mut warnings);
 
     let mut project_skills = Vec::new();
@@ -128,6 +129,42 @@ pub fn discover(paths: &Paths) -> Result<DiscoveredConfig, CoreError> {
         warnings,
         read_at,
     })
+}
+
+fn label_skills_cli_skills(skills: &mut [Skill], paths: &Paths, warnings: &mut Vec<String>) {
+    let lock_path = paths.skills_cli_lock();
+    let entries = match read_skills_lock(&lock_path) {
+        Ok(SkillsLock::Read(entries)) => entries,
+        Ok(SkillsLock::Missing) => return,
+        Ok(SkillsLock::Unsupported { version }) => {
+            warnings.push(format!(
+                "Fettlr does not recognise version {version} of {}; skills installed with the skills CLI are listed as local.",
+                lock_path.display()
+            ));
+            return;
+        }
+        Err(error) => {
+            warnings.push(format!("Could not read {}: {error}", lock_path.display()));
+            return;
+        }
+    };
+    for skill in skills {
+        if skill.provenance != Provenance::Local {
+            continue;
+        }
+        let Some(origin) = entries.get(&skill.name) else {
+            continue;
+        };
+        if !skill.path.is_symlink() {
+            continue;
+        }
+        let canonical = paths.skills_cli_skills_dir().join(&skill.name);
+        if let (Ok(linked), Ok(expected)) = (skill.path.canonicalize(), canonical.canonicalize())
+            && linked == expected
+        {
+            skill.provenance = Provenance::SkillsCli(origin.clone());
+        }
+    }
 }
 
 fn read_root_config(path: &Path) -> Result<Map<String, Value>, CoreError> {

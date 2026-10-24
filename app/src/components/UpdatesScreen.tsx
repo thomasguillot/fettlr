@@ -21,12 +21,14 @@ import { describeUpdateState } from "../updateState";
 import { EmptyState } from "./EmptyState";
 import { StaleBadge } from "./badges";
 import { ScreenShell, contentFrame, formatTimestamp, framedTable, screenColumn, stickyHeaderScrollArea, stickyTableHeader } from "./screen";
+import { installedFromMarketplace } from "./marketplaces/installedCount";
 import { repinMcpServer } from "./mcp/mcpConfig";
 
 type UpdateRow = {
   id: string;
   kind: "marketplace" | "plugin" | "skill" | "mcpServer";
   name: string;
+  note: string | null;
   detail: string;
   action: ((id: string) => void) | null;
   actionKey: string;
@@ -83,6 +85,10 @@ export function UpdatesScreen() {
         id: `marketplace:${marketplace.name}`,
         kind: "marketplace",
         name: marketplace.name,
+        note:
+          installedFromMarketplace(snapshot.plugins, marketplace.name) === 0
+            ? t("marketplaces.nothingInstalled")
+            : null,
         detail: describeState(report.marketplaces[marketplace.name]),
         action: (id: string) => void run(id, () => dispatch(commands.updateMarketplace(marketplace.name))),
         actionKey: "common.update",
@@ -95,6 +101,7 @@ export function UpdatesScreen() {
         id: `plugin:${plugin.id}`,
         kind: "plugin",
         name: plugin.name,
+        note: null,
         detail: describeState(report.plugins[plugin.id]),
         action:
           plugin.scope.kind === "other"
@@ -110,6 +117,7 @@ export function UpdatesScreen() {
         id: `skill:${skill.id}`,
         kind: "skill",
         name: skill.title ?? skill.name,
+        note: null,
         detail: describeState(report.skills[skill.id]),
         action: (id: string) => void run(id, () => dispatch(commands.pullSkill(skill.id))),
         actionKey: "common.update",
@@ -136,6 +144,7 @@ export function UpdatesScreen() {
         id: `mcpServer:${server.id}`,
         kind: "mcpServer",
         name: server.name,
+        note: null,
         detail: describeState(state),
         action,
         actionKey,
@@ -143,7 +152,7 @@ export function UpdatesScreen() {
     }
 
     return result;
-  }, [snapshot, dispatch, run, describeState, navigateToItem]);
+  }, [snapshot, dispatch, run, describeState, navigateToItem, t]);
 
   const updateAllTotal = useMemo(() => rows.filter((row) => row.kind !== "mcpServer" && row.action !== null).length, [rows]);
   const checked = snapshot?.updateReport != null;
@@ -220,7 +229,14 @@ export function UpdatesScreen() {
                     const spinning = updatingId === row.id || stage === "running";
                     return (
                       <TableRow key={row.id}>
-                        <TableCell className="truncate font-medium text-text">{row.name}</TableCell>
+                        <TableCell className="font-medium text-text">
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{row.name}</span>
+                            {row.note ? (
+                              <span className="truncate text-xs font-normal text-text-muted">{row.note}</span>
+                            ) : null}
+                          </span>
+                        </TableCell>
                         <TableCell className={cn("truncate text-text-muted", columns.kind)}>
                           {t(`updates.kind${capitalize(row.kind)}`)}
                         </TableCell>

@@ -1286,15 +1286,13 @@ mod skills_cli_updates {
         let tree = installed_tree();
         let lock_before = std::fs::read(tree.paths.skills_cli_lock()).expect("read lock");
         let skill_before = std::fs::read(canonical_skill_md(&tree)).expect("read skill");
-        let fettlr = fettlr_for(
-            &tree,
-            Arc::new(FakeGitProbe::new().with_unreachable_source(URL)),
-            Arc::new(FakeTrasher::new()),
-        );
+        let git = Arc::new(FakeGitProbe::new().with_unreachable_source(URL));
+        let fettlr = fettlr_for(&tree, git.clone(), Arc::new(FakeTrasher::new()));
         fettlr.refresh().expect("refresh");
         let skill = animate(&fettlr);
 
         assert!(fettlr.pull_skill(&skill).is_err());
+        assert_eq!(git.fetch_count(URL), 1);
 
         assert_eq!(
             std::fs::read(tree.paths.skills_cli_lock()).expect("read lock"),
@@ -1323,7 +1321,7 @@ mod skills_cli_updates {
     }
 
     #[test]
-    fn an_update_that_finds_the_folder_already_current_only_rewrites_the_lock() {
+    fn an_update_after_a_crash_past_the_swap_converges() {
         let tree = installed_tree();
         tree.write(&format!("exported {COMMIT}"), &canonical_skill_md(&tree));
         let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
@@ -1517,6 +1515,136 @@ mod skills_cli_updates {
         assert_eq!(
             std::fs::read(tree.paths.skills_cli_lock()).expect("read lock"),
             lock_before
+        );
+    }
+
+    fn hand_built(name: &str, path: PathBuf) -> Skill {
+        Skill {
+            id: format!("user/{name}"),
+            name: name.to_string(),
+            title: None,
+            summary: None,
+            scope: Scope::User,
+            provenance: Provenance::SkillsCli(SkillsCliOrigin {
+                source: "emilkowalski/skills".to_string(),
+                source_type: "github".to_string(),
+                source_url: Some(URL.to_string()),
+                reference: None,
+                folder: "skills/animate".to_string(),
+                folder_hash: OLD_HASH.to_string(),
+            }),
+            path,
+        }
+    }
+
+    #[test]
+    fn a_lock_folder_that_climbs_out_of_the_source_is_refused() {
+        let tree = TempTree::new();
+        tree.make_skills_cli_skill("animate");
+        let mut climbing = lock_entry();
+        climbing["skillPath"] = json!("../../evil/SKILL.md");
+        tree.write_skills_lock(json!({"animate": climbing}));
+        let lock_before = std::fs::read(tree.paths.skills_cli_lock()).expect("read lock");
+        let skill_before = std::fs::read(canonical_skill_md(&tree)).expect("read skill");
+        let git = Arc::new(FakeGitProbe::with_sources([(
+            URL,
+            COMMIT,
+            BTreeMap::from([("../../evil", NEW_HASH)]),
+        )]));
+        let fettlr = fettlr_for(&tree, git.clone(), Arc::new(FakeTrasher::new()));
+        fettlr.refresh().expect("refresh");
+
+        assert!(matches!(
+            fettlr.pull_skill(&animate(&fettlr)),
+            Err(CoreError::UnsupportedSkillSource { .. })
+        ));
+        assert_eq!(git.fetch_count(URL), 0);
+        assert!(git.exports().is_empty());
+        assert_eq!(
+            std::fs::read(tree.paths.skills_cli_lock()).expect("read lock"),
+            lock_before
+        );
+        assert_eq!(
+            std::fs::read(canonical_skill_md(&tree)).expect("read skill"),
+            skill_before
+        );
+    }
+
+    #[test]
+    fn a_skill_name_that_climbs_out_of_the_skills_folder_is_refused() {
+        let tree = installed_tree();
+        let mut entries = json!({"animate": lock_entry()});
+        entries["../x"] = lock_entry();
+        tree.write_skills_lock(entries);
+        let outside = tree.write(
+            "# x\n",
+            &tree.paths.skills_cli_dir().join("x").join("SKILL.md"),
+        );
+        let lock_before = std::fs::read(tree.paths.skills_cli_lock()).expect("read lock");
+        let git = Arc::new(source_probe());
+        let trasher = Arc::new(FakeTrasher::new());
+        let fettlr = fettlr_for(&tree, git.clone(), trasher.clone());
+        fettlr.refresh().expect("refresh");
+
+        let skill = hand_built("../x", tree.paths.skills_dir().join("x"));
+        assert!(matches!(
+            fettlr.pull_skill(&skill),
+            Err(CoreError::UnsupportedSkillSource { .. })
+        ));
+        assert_eq!(git.fetch_count(URL), 0);
+        assert!(git.exports().is_empty());
+        assert!(trasher.trashed().is_empty());
+        assert_eq!(std::fs::read_to_string(&outside).expect("read x"), "# x\n");
+        assert_eq!(
+            std::fs::read(tree.paths.skills_cli_lock()).expect("read lock"),
+            lock_before
+        );
+    }
+
+    #[test]
+    fn refresh_restores_a_skill_left_set_aside_by_an_interrupted_update() {
+        let tree = installed_tree();
+        let canonical = tree.paths.skills_cli_skills_dir().join("animate");
+        let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        std::fs::rename(&canonical, &set_aside).expect("set aside");
+        let fettlr = fettlr_for(
+            &tree,
+            Arc::new(source_probe()),
+            Arc::new(FakeTrasher::new()),
+        );
+
+        let snapshot = fettlr.refresh().expect("refresh");
+
+        let skill = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.name == "animate")
+            .expect("animate is listed again");
+        assert!(matches!(skill.provenance, Provenance::SkillsCli(_)));
+        assert_eq!(
+            std::fs::read_to_string(canonical_skill_md(&tree)).expect("read skill"),
+            "# animate\n"
+        );
+        assert!(!set_aside.exists());
+    }
+
+    #[test]
+    fn refresh_leaves_a_set_aside_folder_alone_while_the_skill_folder_exists() {
+        let tree = installed_tree();
+        let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        let old = tree.write("old", &set_aside.join("SKILL.md"));
+        let fettlr = fettlr_for(
+            &tree,
+            Arc::new(source_probe()),
+            Arc::new(FakeTrasher::new()),
+        );
+
+        fettlr.refresh().expect("refresh");
+
+        assert_eq!(std::fs::read_to_string(&old).expect("read old"), "old");
+        assert_eq!(
+            std::fs::read_to_string(canonical_skill_md(&tree)).expect("read skill"),
+            "# animate\n"
         );
     }
 }

@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::cli_records::CoreError;
 use crate::json_store::save_json_store;
+use crate::paths::Paths;
 use crate::trashing::Trashing;
 
 /// Where the skills CLI recorded a skill coming from, decoded from `~/.agents/.skill-lock.json`.
@@ -134,4 +135,58 @@ pub fn replace_skill_folder(
         log::warn!("{error}");
     }
     Ok(())
+}
+
+pub(crate) fn is_plain_name(name: &str) -> bool {
+    let mut parts = Path::new(name).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(Component::Normal(_)), None)
+    )
+}
+
+const SET_ASIDE_PREFIX: &str = ".fettlr-replaced-";
+
+/// Where an update parks a skill's old folder while the new one is swapped in.
+pub(crate) fn set_aside_path(paths: &Paths, name: &str) -> PathBuf {
+    paths
+        .skills_cli_dir()
+        .join(format!("{SET_ASIDE_PREFIX}{name}"))
+}
+
+/// Moves back every skill folder an interrupted update left set aside while nothing has taken its
+/// place. Never trashes or deletes anything: the set-aside copy may be the only one left.
+pub fn recover_interrupted_swaps(paths: &Paths) {
+    let Ok(entries) = std::fs::read_dir(paths.skills_cli_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name
+            .to_str()
+            .and_then(|text| text.strip_prefix(SET_ASIDE_PREFIX))
+            .filter(|name| is_plain_name(name))
+        else {
+            continue;
+        };
+        let set_aside = entry.path();
+        if !std::fs::symlink_metadata(&set_aside).is_ok_and(|metadata| metadata.is_dir()) {
+            continue;
+        }
+        let target = paths.skills_cli_skills_dir().join(name);
+        let vacant = matches!(
+            std::fs::symlink_metadata(&target),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
+        if !vacant {
+            continue;
+        }
+        if let Err(error) = std::fs::rename(&set_aside, &target) {
+            log::warn!(
+                "could not move {} back to {}: {error}",
+                set_aside.display(),
+                target.display()
+            );
+        }
+    }
 }

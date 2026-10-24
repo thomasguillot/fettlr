@@ -832,3 +832,26 @@ fn a_skill_with_a_reference_fetches_that_reference() {
     assert_eq!(report.skills["user/motion"], UpdateState::UpToDate);
     assert_eq!(git.fetched_references(), vec![Some("next".to_string())]);
 }
+
+#[test]
+fn a_skills_cli_folder_that_climbs_out_of_the_source_is_unknown_without_a_fetch() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("../../evil", NEW_TREE)]),
+    )]));
+    let checker = source_checker(git.clone());
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "evil",
+            "emilkowalski/skills",
+            "../../evil",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/evil"], UpdateState::Unknown);
+    assert_eq!(git.fetch_count(EMIL_URL), 0);
+}

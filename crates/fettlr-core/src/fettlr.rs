@@ -1,5 +1,5 @@
-use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, TryLockError};
 
 use serde::Serialize;
 
@@ -12,7 +12,8 @@ use crate::models::{Scope, UpdateState};
 use crate::paths::Paths;
 use crate::skills::{
     ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
-    read_skills_lock, record_skill_update, replace_skill_folder,
+    is_plain_name, read_skills_lock, record_skill_update, recover_interrupted_swaps,
+    replace_skill_folder, set_aside_path,
 };
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
@@ -108,6 +109,15 @@ impl Fettlr {
             .refresh_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let updating = match self.skills_cli_update_lock.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        };
+        if updating.is_some() {
+            recover_interrupted_swaps(&self.paths);
+        }
+        drop(updating);
         let discovered = discover(&self.paths)?;
         let mut warnings = discovered.warnings.clone();
         let mut binary_missing = false;
@@ -357,17 +367,19 @@ impl Fettlr {
         let unsupported = || CoreError::UnsupportedSkillSource {
             name: name.to_string(),
         };
-        let mut parts = Path::new(name).components();
-        if !matches!(
-            (parts.next(), parts.next()),
-            (Some(Component::Normal(_)), None)
-        ) {
+        if !is_plain_name(name) {
             return Err(unsupported());
         }
 
         let target = self.paths.skills_cli_skills_dir().join(name);
-        let metadata = std::fs::symlink_metadata(&target).map_err(|_| CoreError::MissingSkill {
-            path: target.display().to_string(),
+        let metadata = std::fs::symlink_metadata(&target).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                CoreError::MissingSkill {
+                    path: target.display().to_string(),
+                }
+            } else {
+                CoreError::Io(error)
+            }
         })?;
         if !metadata.is_dir() {
             return Err(unsupported());
@@ -424,7 +436,7 @@ impl Fettlr {
             } else {
                 staging.join(folder)
             };
-            let set_aside = cli_dir.join(format!(".fettlr-replaced-{name}"));
+            let set_aside = set_aside_path(&self.paths, name);
             if std::fs::symlink_metadata(&set_aside).is_ok() {
                 self.trasher.trash(&set_aside)?;
             }

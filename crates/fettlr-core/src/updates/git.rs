@@ -116,10 +116,13 @@ impl GitProbing for GitProbe {
         reference: Option<&str>,
         cache_repo: &Path,
     ) -> Result<String, CoreError> {
-        std::fs::create_dir_all(cache_repo).map_err(|error| CoreError::Cli {
-            command: "git init".to_string(),
-            stderr: error.to_string(),
-        })?;
+        if reference.is_some_and(|reference| reference.starts_with('-')) {
+            return Err(CoreError::Cli {
+                command: "git fetch".into(),
+                stderr: "refusing a reference that starts with a dash".into(),
+            });
+        }
+        std::fs::create_dir_all(cache_repo)?;
         if !cache_repo.join("HEAD").exists() {
             self.run_ok(&["init", "--quiet", "--bare", "."], cache_repo)?;
         }
@@ -131,7 +134,7 @@ impl GitProbing for GitProbe {
         )?;
 
         let target = reference.unwrap_or("HEAD");
-        let listing_args = ["ls-remote", "origin", target];
+        let listing_args = ["ls-remote", "--end-of-options", "origin", target];
         let listing = self.run_ok(&listing_args, cache_repo)?;
         let commit = listing
             .stdout
@@ -156,6 +159,7 @@ impl GitProbing for GitProbe {
                 "--quiet",
                 "--depth=1",
                 "--filter=blob:none",
+                "--end-of-options",
                 "origin",
                 target,
             ],
@@ -171,24 +175,28 @@ impl GitProbing for GitProbe {
         commit: &str,
         folder: &str,
     ) -> Result<Option<String>, CoreError> {
-        if folder.is_empty() {
+        let folder = folder.strip_suffix('/').unwrap_or(folder);
+        if folder.is_empty() || folder == "." {
             let root = format!("{commit}^{{tree}}");
             let output = self.run_ok(&["rev-parse", &root], cache_repo)?;
             return Ok(Some(output.stdout.trim().to_string()));
         }
         let output = self.run_ok(
-            &[
-                "ls-tree",
-                "-d",
-                "--format=%(objectname)",
-                commit,
-                "--",
-                folder,
-            ],
+            &["--literal-pathspecs", "ls-tree", "-d", commit, "--", folder],
             cache_repo,
         )?;
-        let sha = output.stdout.trim();
-        Ok((!sha.is_empty()).then(|| sha.to_string()))
+        let mut lines = output.stdout.lines();
+        let (Some(line), None) = (lines.next(), lines.next()) else {
+            return Ok(None);
+        };
+        let Some((meta, path)) = line.split_once('\t') else {
+            return Ok(None);
+        };
+        let fields: Vec<&str> = meta.split(' ').collect();
+        Ok(match fields.as_slice() {
+            [_, "tree", sha] if path == folder && is_commit_sha(sha) => Some((*sha).to_string()),
+            _ => None,
+        })
     }
 
     fn export_folder(
@@ -202,7 +210,15 @@ impl GitProbing for GitProbe {
         let work_tree = format!("--work-tree={}", destination.display());
         let pathspec = if folder.is_empty() { "." } else { folder };
         self.run_ok(
-            &[&git_dir, &work_tree, "checkout", commit, "--", pathspec],
+            &[
+                "--literal-pathspecs",
+                &git_dir,
+                &work_tree,
+                "checkout",
+                commit,
+                "--",
+                pathspec,
+            ],
             cache_repo,
         )?;
         Ok(())

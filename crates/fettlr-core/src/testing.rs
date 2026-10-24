@@ -364,16 +364,8 @@ impl GitProbing for FakeGitProbe {
         destination: &Path,
     ) -> Result<(), CoreError> {
         let target = destination.join(folder);
-        std::fs::create_dir_all(&target).map_err(|error| CoreError::Cli {
-            command: "git checkout".into(),
-            stderr: error.to_string(),
-        })?;
-        std::fs::write(target.join("SKILL.md"), format!("exported {commit}")).map_err(|error| {
-            CoreError::Cli {
-                command: "git checkout".into(),
-                stderr: error.to_string(),
-            }
-        })?;
+        std::fs::create_dir_all(&target)?;
+        std::fs::write(target.join("SKILL.md"), format!("exported {commit}"))?;
         self.exported
             .lock()
             .expect("lock poisoned")

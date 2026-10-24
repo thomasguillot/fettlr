@@ -389,3 +389,67 @@ fn a_fetch_after_the_remote_moves_fetches_the_new_head() {
         Some(fixture.origin_rev("HEAD:skills/demo"))
     );
 }
+
+#[test]
+fn a_reference_starting_with_a_dash_is_refused() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let marker = fixture._root.path().join("PWNED");
+    let reference = format!("--upload-pack=touch {}", marker.display());
+
+    let result = GitProbe.fetch_source(&fixture.url, Some(&reference), &fixture.cache);
+
+    assert!(matches!(result, Err(CoreError::Cli { .. })));
+    assert!(!marker.exists());
+    assert!(!fixture.cache.join("FETCH_HEAD").exists());
+}
+
+#[test]
+fn tree_sha_treats_dot_as_the_root_and_ignores_a_trailing_slash() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let commit = GitProbe
+        .fetch_source(&fixture.url, None, &fixture.cache)
+        .expect("fetch source");
+
+    assert_eq!(
+        GitProbe
+            .tree_sha(&fixture.cache, &commit, ".")
+            .expect("dot"),
+        Some(fixture.origin_rev("HEAD^{tree}"))
+    );
+    assert_eq!(
+        GitProbe
+            .tree_sha(&fixture.cache, &commit, "skills/demo/")
+            .expect("slash"),
+        Some(fixture.origin_rev("HEAD:skills/demo"))
+    );
+}
+
+#[test]
+fn export_folder_treats_the_folder_literally() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let commit = GitProbe
+        .fetch_source(&fixture.url, None, &fixture.cache)
+        .expect("fetch source");
+    let destination = fixture._root.path().join("export");
+    std::fs::create_dir_all(&destination).expect("create destination");
+
+    let result = GitProbe.export_folder(&fixture.cache, &commit, "*", &destination);
+
+    assert!(matches!(result, Err(CoreError::Cli { .. })));
+    assert!(!destination.join("other.txt").exists());
+    assert_eq!(
+        GitProbe
+            .tree_sha(&fixture.cache, &commit, "*")
+            .expect("star"),
+        None
+    );
+}

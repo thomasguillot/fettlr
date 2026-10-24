@@ -12,8 +12,8 @@ use crate::models::{Scope, UpdateState};
 use crate::paths::Paths;
 use crate::skills::{
     ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
-    is_plain_name, read_skills_lock, record_skill_update, recover_interrupted_swaps,
-    replace_skill_folder, set_aside_path,
+    account_skills_behind, is_plain_name, read_skills_lock, record_skill_update,
+    recover_interrupted_swaps, replace_skill_folder, set_aside_path,
 };
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
@@ -168,6 +168,7 @@ impl Fettlr {
         skills.extend(from_plugins);
         warnings.extend(plugin_skill_warnings);
         skills.extend(discovered.account_skills);
+        let account_skills_behind = account_skills_behind(&skills);
 
         let parked_subagents = match self.subagent_store.parked() {
             Ok(records) => records,
@@ -188,6 +189,7 @@ impl Fettlr {
         Ok(self.update(|snapshot| {
             snapshot.cli_available = !binary_missing;
             snapshot.skills = skills;
+            snapshot.account_skills_behind = account_skills_behind;
             snapshot.parked_skills = parked_skills;
             snapshot.subagents = subagents;
             snapshot.parked_subagents = parked_subagents;

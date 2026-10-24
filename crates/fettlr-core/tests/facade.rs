@@ -243,8 +243,53 @@ fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
     }
 }
 
+fn account_and_plugin_copy(tree: &TempTree) -> (PathBuf, Arc<ScriptedCliRunner>) {
+    let uploaded = json!([{
+        "skillId": "skill_x",
+        "name": "impeccable",
+        "source": "plugin",
+        "updatedAt": "2026-10-24T12:57:30Z"
+    }]);
+    tree.write_account_manifest("b1", 1, uploaded);
+    let account = tree.make_account_skill(
+        "b1",
+        "impeccable",
+        "---\nname: impeccable\ndescription: d\n---\n\nold body\n",
+    );
+    tree.make_skill(
+        "impeccable",
+        &tree.plugin_skills_dir("impeccable"),
+        Some("---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nnew body\n"),
+        false,
+    );
+    let install_path = tree.plugin_install_dir("impeccable").display().to_string();
+    let runner = Arc::new(ScriptedCliRunner::new());
+    runner.set_plugin_list(&format!(
+        r#"[{{"id": "impeccable@impeccable", "version": "4.7.1", "scope": "user", "enabled": true, "installPath": "{install_path}"}}]"#
+    ));
+    (account, runner)
+}
+
 mod refresh {
     use super::*;
+
+    #[test]
+    fn refresh_flags_an_account_skill_a_newer_plugin_copy_supersedes() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+
+        let snapshot = fettlr.refresh().expect("refresh");
+
+        assert_eq!(
+            snapshot.account_skills_behind,
+            vec![fettlr_core::AccountSkillBehind {
+                account_id: "account:impeccable".into(),
+                local_id: "plugin:impeccable@impeccable/impeccable".into(),
+                local_version: Some("4.7.1".into()),
+            }]
+        );
+    }
 
     #[test]
     fn assembles_a_snapshot_from_every_source() {
@@ -450,6 +495,36 @@ mod checking_for_updates {
 
 mod mutations {
     use super::*;
+
+    #[test]
+    fn update_all_never_touches_an_account_skill() {
+        let tree = TempTree::new();
+        let (account, runner) = account_and_plugin_copy(&tree);
+        let before = std::fs::read(account.join("SKILL.md")).expect("read");
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.check_updates().expect("check");
+
+        let progress = Arc::new(Mutex::new(Vec::new()));
+        let recorder = progress.clone();
+        let snapshot = fettlr
+            .update_all(&move |update: UpdateProgress| {
+                recorder.lock().expect("lock poisoned").push(update.id);
+            })
+            .expect("update_all");
+
+        assert!(
+            !progress
+                .lock()
+                .expect("lock poisoned")
+                .contains(&"account:impeccable".to_string())
+        );
+        assert!(snapshot.update_failures.is_empty());
+        assert_eq!(
+            std::fs::read(account.join("SKILL.md")).expect("read"),
+            before
+        );
+    }
 
     #[test]
     fn a_mutation_re_reads_and_reflects_the_new_state() {

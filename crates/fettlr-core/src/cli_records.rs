@@ -414,6 +414,8 @@ pub enum CoreError {
         "removed the MCP server {name} but could not put it back; add it again with these settings: {config_json}"
     )]
     UnrestorableMcpServer { name: String, config_json: String },
+    #[error("could not package the skill {name}: {reason}")]
+    UnpackageableSkill { name: String, reason: String },
     #[error("{repo} has no upstream branch configured")]
     NoUpstream { repo: String },
     #[error("{package} is not a usable registry package name")]

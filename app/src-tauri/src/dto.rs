@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use fettlr_core::{
-    ConnectorState, CoreError, MarketplaceRecord, McpConnector, McpOrigin, McpServer,
-    McpServerConfig, ParkedSkill, ParkedSubagent, PluginRecord, ProjectEntry, Provenance, Scope,
-    Skill, Snapshot, StaleIds, Subagent, UpdateFailure, UpdateItemKind, UpdateReport, UpdateStage,
-    UpdateState, Usage,
+    AccountSkillBehind, ConnectorState, CoreError, MarketplaceRecord, McpConnector, McpOrigin,
+    McpServer, McpServerConfig, ParkedSkill, ParkedSubagent, PluginRecord, ProjectEntry,
+    Provenance, Scope, Skill, Snapshot, StaleIds, Subagent, UpdateFailure, UpdateItemKind,
+    UpdateReport, UpdateStage, UpdateState, Usage,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -889,6 +889,7 @@ fn convert_states(states: &BTreeMap<String, UpdateState>) -> BTreeMap<String, Ui
 pub struct UiSnapshot {
     pub cli_available: bool,
     pub skills: Vec<UiSkill>,
+    pub account_skills_behind: Vec<UiAccountSkillBehind>,
     pub parked_skills: Vec<UiParkedSkill>,
     pub subagents: Vec<UiSubagent>,
     pub parked_subagents: Vec<UiParkedSubagent>,
@@ -903,6 +904,24 @@ pub struct UiSnapshot {
     pub last_refreshed: Option<String>,
     pub connectors: Vec<UiConnector>,
     pub connectors_checked_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UiAccountSkillBehind {
+    pub account_id: String,
+    pub local_id: String,
+    pub local_version: Option<String>,
+}
+
+impl From<&AccountSkillBehind> for UiAccountSkillBehind {
+    fn from(behind: &AccountSkillBehind) -> Self {
+        Self {
+            account_id: behind.account_id.clone(),
+            local_id: behind.local_id.clone(),
+            local_version: behind.local_version.clone(),
+        }
+    }
 }
 
 /// A connector configured on the reader's claude.ai account. Fettlr has no local config for one
@@ -975,6 +994,11 @@ impl From<Snapshot> for UiSnapshot {
                 .skills
                 .iter()
                 .map(|skill| UiSkill::from(skill).with_usage(snapshot.usage.for_skill(skill)))
+                .collect(),
+            account_skills_behind: snapshot
+                .account_skills_behind
+                .iter()
+                .map(UiAccountSkillBehind::from)
                 .collect(),
             parked_skills: snapshot
                 .parked_skills
@@ -1374,6 +1398,29 @@ mod tests {
         let json = serde_json::to_string(&UiProject::from(&entry)).expect("serialises");
         assert!(!json.contains("sk-secret"));
         assert!(json.contains("local"));
+    }
+
+    #[test]
+    fn the_snapshot_carries_account_skills_behind_in_camel_case() {
+        let snapshot = Snapshot {
+            account_skills_behind: vec![fettlr_core::AccountSkillBehind {
+                account_id: "account:impeccable".into(),
+                local_id: "plugin:impeccable@impeccable/impeccable".into(),
+                local_version: Some("4.7.1".into()),
+            }],
+            ..Snapshot::default()
+        };
+
+        let json = serde_json::to_value(UiSnapshot::from(snapshot)).expect("serialises");
+
+        assert_eq!(
+            json["accountSkillsBehind"],
+            serde_json::json!([{
+                "accountId": "account:impeccable",
+                "localId": "plugin:impeccable@impeccable/impeccable",
+                "localVersion": "4.7.1"
+            }])
+        );
     }
 
     #[test]

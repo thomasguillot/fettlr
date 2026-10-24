@@ -1,5 +1,8 @@
+use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
+
 use fettlr_core::testing::TempTree;
-use fettlr_core::{Provenance, Scope, discover};
+use fettlr_core::{AccountSkillBehind, Provenance, Scope, Skill, account_skills_behind, discover};
 use serde_json::{Value, json};
 
 const UPDATED: &str = "2026-10-24T12:57:30.617177Z";
@@ -403,4 +406,291 @@ fn a_name_with_a_backslash_is_skipped() {
     let config = discover(&tree.paths).expect("discover");
 
     assert!(config.account_skills.is_empty());
+}
+
+const PLUGIN_ID: &str = "plugin:impeccable@impeccable/impeccable";
+const UPLOADED: i64 = 1_792_846_650;
+
+fn markdown(version: Option<&str>, indent_tools: bool, body: &str) -> String {
+    let version = version
+        .map(|v| format!("version: {v}\n"))
+        .unwrap_or_default();
+    let tools = if indent_tools {
+        "allowed-tools:\n  - Bash(x)\n"
+    } else {
+        "allowed-tools:\n- Bash(x)\n"
+    };
+    format!("---\nname: impeccable\ndescription: d\n{version}{tools}---\n\n{body}\n")
+}
+
+fn account(tree: &TempTree, markdown: &str, updated_at: &str) -> Skill {
+    let folder = tree.make_account_skill("b1", "impeccable", markdown);
+    Skill {
+        id: "account:impeccable".into(),
+        name: "impeccable".into(),
+        title: Some("impeccable".into()),
+        summary: None,
+        scope: Scope::User,
+        provenance: Provenance::Account {
+            updated_at: updated_at.into(),
+        },
+        path: folder,
+    }
+}
+
+fn local(
+    tree: &TempTree,
+    dir: &str,
+    id: &str,
+    scope: Scope,
+    provenance: Provenance,
+    markdown: &str,
+) -> Skill {
+    let folder = tree.root().join(dir).join("impeccable");
+    tree.write(markdown, &folder.join("SKILL.md"));
+    Skill {
+        id: id.into(),
+        name: "impeccable".into(),
+        title: Some("impeccable".into()),
+        summary: None,
+        scope,
+        provenance,
+        path: folder,
+    }
+}
+
+fn plugin_copy(tree: &TempTree, markdown: &str) -> Skill {
+    local(
+        tree,
+        "plugin",
+        PLUGIN_ID,
+        Scope::User,
+        Provenance::Plugin {
+            plugin_id: "impeccable@impeccable".into(),
+        },
+        markdown,
+    )
+}
+
+fn user_copy(tree: &TempTree, markdown: &str) -> Skill {
+    local(
+        tree,
+        "user",
+        "user/impeccable",
+        Scope::User,
+        Provenance::Local,
+        markdown,
+    )
+}
+
+fn set_mtime(path: &Path, unix_seconds: u64) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).expect("read dir") {
+            set_mtime(&entry.expect("entry").path(), unix_seconds);
+        }
+    } else {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("open")
+            .set_modified(UNIX_EPOCH + Duration::from_secs(unix_seconds))
+            .expect("set mtime");
+    }
+}
+
+fn behind(account: &Skill, local: &Skill, version: Option<&str>) -> Vec<AccountSkillBehind> {
+    vec![AccountSkillBehind {
+        account_id: account.id.clone(),
+        local_id: local.id.clone(),
+        local_version: version.map(str::to_string),
+    }]
+}
+
+fn judge(skills: &[&Skill]) -> Vec<AccountSkillBehind> {
+    let owned: Vec<Skill> = skills.iter().map(|s| (*s).clone()).collect();
+    account_skills_behind(&owned)
+}
+
+fn future_updated_at() -> String {
+    "2099-01-01T00:00:00Z".into()
+}
+
+#[test]
+fn a_versioned_local_copy_beats_an_unversioned_account_copy() {
+    let tree = TempTree::new();
+    let a = account(
+        &tree,
+        &markdown(None, false, "old body"),
+        &future_updated_at(),
+    );
+    let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "new body"));
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("4.7.1")));
+}
+
+#[test]
+fn the_same_content_is_never_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(None, true, "body"));
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_server_dropped_version_key_does_not_make_a_copy_differ() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "body"));
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn an_older_account_version_is_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(Some("4.6.0"), false, "old"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "new"));
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("4.7.1")));
+}
+
+#[test]
+fn an_equal_or_newer_account_version_is_not_behind() {
+    for account_version in ["4.7.1", "4.8.0"] {
+        let tree = TempTree::new();
+        let a = account(
+            &tree,
+            &markdown(Some(account_version), false, "old"),
+            UPDATED,
+        );
+        let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "new"));
+
+        assert!(judge(&[&a, &c]).is_empty(), "{account_version}");
+    }
+}
+
+#[test]
+fn uncomparable_versions_are_not_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(Some("next"), true, "new"));
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn an_unversioned_local_copy_edited_after_the_upload_is_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-01-01T00:00:00Z");
+    let c = user_copy(&tree, &markdown(None, true, "new"));
+    set_mtime(&c.path, UPLOADED as u64);
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, None));
+}
+
+#[test]
+fn an_unversioned_local_copy_older_than_the_upload_is_not_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let c = user_copy(&tree, &markdown(None, true, "new"));
+    set_mtime(&c.path, UPLOADED as u64 - 86_400);
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_local_edit_within_five_minutes_of_the_upload_is_not_trusted() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let c = user_copy(&tree, &markdown(None, true, "new"));
+    set_mtime(&c.path, UPLOADED as u64 + 299);
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_project_skill_is_never_compared() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let c = local(
+        &tree,
+        "project",
+        "project/impeccable",
+        Scope::Project { path: "/p".into() },
+        Provenance::Local,
+        &markdown(Some("9.0.0"), true, "new"),
+    );
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_matching_copy_anywhere_keeps_the_account_current() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let same = user_copy(&tree, &markdown(None, true, "body"));
+    let newer = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "other"));
+
+    assert!(judge(&[&a, &same, &newer]).is_empty());
+}
+
+#[test]
+fn the_highest_version_is_chosen_to_package() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let plugin = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "p"));
+    let user = user_copy(&tree, &markdown(Some("4.8.0"), true, "u"));
+
+    let result = judge(&[&a, &plugin, &user]);
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].local_id, "user/impeccable");
+    assert_eq!(result[0].local_version.as_deref(), Some("4.8.0"));
+}
+
+#[test]
+fn dotfiles_and_symlinks_are_ignored_in_the_comparison() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "body"));
+    tree.write("junk", &c.path.join(".DS_Store"));
+    tree.write("ref: x", &c.path.join(".git").join("HEAD"));
+    let outside = tree.write("outside", &tree.root().join("outside.md"));
+    std::os::unix::fs::symlink(&outside, c.path.join("extra.md")).expect("link");
+
+    assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn a_file_only_one_side_has_makes_them_differ() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let c = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "body"));
+    tree.write("new", &c.path.join("reference").join("new.md"));
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("4.7.1")));
+}
+
+#[test]
+fn a_skills_cli_skill_is_read_through_its_link() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let link: PathBuf = tree.make_skills_cli_skill("impeccable");
+    let canonical = tree.paths.skills_cli_skills_dir().join("impeccable");
+    tree.write(
+        &markdown(Some("2.0.0"), true, "new"),
+        &canonical.join("SKILL.md"),
+    );
+    let c = Skill {
+        id: "user/impeccable".into(),
+        name: "impeccable".into(),
+        title: None,
+        summary: None,
+        scope: Scope::User,
+        provenance: Provenance::Local,
+        path: link,
+    };
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("2.0.0")));
 }

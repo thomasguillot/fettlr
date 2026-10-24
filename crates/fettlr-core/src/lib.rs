@@ -36,9 +36,9 @@ pub use mcp::{
 pub use models::{Scope, UNKNOWN_VERSION, UpdateState};
 pub use paths::Paths;
 pub use skills::{
-    Clock, ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsCliOrigin,
-    SkillsLock, read_skills_lock, record_skill_update, recover_interrupted_swaps,
-    replace_skill_folder,
+    AccountSkillBehind, Clock, ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill,
+    SkillStore, SkillsCliOrigin, SkillsLock, account_skills_behind, read_skills_lock,
+    record_skill_update, recover_interrupted_swaps, replace_skill_folder,
 };
 pub use snapshot::Snapshot;
 pub use subagents::Subagent;

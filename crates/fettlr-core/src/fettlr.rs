@@ -19,8 +19,8 @@ use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
 use crate::trashing::Trashing;
 use crate::updates::{
-    GitProbing, RegistryClient, UpdateChecker, checkable_source_url, read_plugin_catalogue,
-    skill_source_repo,
+    GitProbing, RegistryClient, UpdateChecker, UpdateReport, checkable_source_url,
+    read_plugin_catalogue, skill_source_repo,
 };
 
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
@@ -168,7 +168,13 @@ impl Fettlr {
         skills.extend(from_plugins);
         warnings.extend(plugin_skill_warnings);
         skills.extend(discovered.account_skills);
-        let account_skills_behind = account_skills_behind(&skills);
+        let stale = self
+            .lock_snapshot()
+            .update_report
+            .as_ref()
+            .map(UpdateReport::stale_ids)
+            .unwrap_or_default();
+        let account_skills_behind = account_skills_behind(&skills, &stale);
 
         let parked_subagents = match self.subagent_store.parked() {
             Ok(records) => records,
@@ -243,8 +249,10 @@ impl Fettlr {
             &snapshot.mcp_servers,
         );
 
+        let stale = report.stale_ids();
         Ok(self.update(|snapshot| {
             snapshot.available_plugins = available_plugins;
+            snapshot.account_skills_behind = account_skills_behind(&snapshot.skills, &stale);
             snapshot.update_report = Some(report);
             if binary_missing {
                 snapshot.cli_available = false;

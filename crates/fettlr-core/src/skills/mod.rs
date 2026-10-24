@@ -1,6 +1,7 @@
 mod account;
 mod account_compare;
 mod model;
+mod package;
 mod skill_files;
 mod skills_cli;
 mod store;
@@ -8,6 +9,7 @@ mod store;
 pub(crate) use account::account_skills;
 pub use account_compare::{AccountSkillBehind, account_skills_behind};
 pub use model::{Provenance, Skill};
+pub use package::write_skill_zip;
 pub(crate) use skill_files::skill_files;
 pub use skills_cli::{
     SkillsCliOrigin, SkillsLock, read_skills_lock, record_skill_update, recover_interrupted_swaps,

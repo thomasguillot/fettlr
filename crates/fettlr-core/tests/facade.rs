@@ -496,6 +496,90 @@ mod checking_for_updates {
 mod mutations {
     use super::*;
 
+    fn plugin_skill_snapshot(
+        tree: &TempTree,
+        folder: &str,
+        frontmatter_name: &str,
+    ) -> (Fettlr, fettlr_core::Skill) {
+        tree.make_skill(
+            folder,
+            &tree.plugin_skills_dir("impeccable"),
+            Some(&TempTree::skill_markdown(frontmatter_name, "d")),
+            false,
+        );
+        let install_path = tree.plugin_install_dir("impeccable").display().to_string();
+        let runner = Arc::new(ScriptedCliRunner::new());
+        runner.set_plugin_list(&format!(
+            r#"[{{"id": "impeccable@impeccable", "version": "4.7.1", "scope": "user", "enabled": true, "installPath": "{install_path}"}}]"#
+        ));
+        let fettlr = fettlr_with(runner, tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .into_iter()
+            .find(|skill| skill.name == folder)
+            .expect("skill listed");
+        (fettlr, skill)
+    }
+
+    fn zip_entries(path: &Path) -> Vec<String> {
+        let archive = zip::ZipArchive::new(std::fs::File::open(path).expect("open")).expect("zip");
+        archive
+            .file_names()
+            .map(|name| name.expect("name").into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn package_skill_writes_into_the_packages_folder_under_the_skills_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "impeccable", "impeccable");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("impeccable.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("impeccable/"))
+        );
+    }
+
+    #[test]
+    fn the_zip_root_is_the_frontmatter_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "house-style");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert!(path.ends_with("house-style.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("house-style/"))
+        );
+    }
+
+    #[test]
+    fn an_account_skill_cannot_be_packaged() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let account = snapshot
+            .skills
+            .into_iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("account skill");
+
+        let result = fettlr.package_skill(&account);
+
+        assert!(matches!(
+            result,
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+    }
+
     #[test]
     fn update_all_never_touches_an_account_skill() {
         let tree = TempTree::new();

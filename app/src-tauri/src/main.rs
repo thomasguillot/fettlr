@@ -37,6 +37,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::delete_skill,
             commands::delete_parked_skill,
             commands::pull_skill,
+            commands::package_skill,
             commands::park_subagent,
             commands::restore_subagent,
             commands::delete_subagent,

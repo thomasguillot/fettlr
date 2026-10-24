@@ -13,7 +13,7 @@ use crate::paths::Paths;
 use crate::skills::{
     ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
     account_skills_behind, is_plain_name, read_skills_lock, record_skill_update,
-    recover_interrupted_swaps, replace_skill_folder, set_aside_path,
+    recover_interrupted_swaps, replace_skill_folder, set_aside_path, write_skill_zip,
 };
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
@@ -347,6 +347,30 @@ impl Fettlr {
     /// new folder hash recorded in the CLI's lock.
     pub fn pull_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
         self.mutate(|| self.update_skill(skill))
+    }
+
+    /// Writes the skill's folder as a ZIP the reader uploads to their Claude account by hand.
+    /// Changes nothing Fettlr lists, so it neither refreshes nor publishes.
+    pub fn package_skill(&self, skill: &Skill) -> Result<PathBuf, CoreError> {
+        if matches!(skill.provenance, Provenance::Account { .. }) {
+            return Err(CoreError::SkillManagedByAccount {
+                name: skill.name.clone(),
+            });
+        }
+        let root_name = match skill.title.as_deref() {
+            Some(title)
+                if !title.is_empty() && !title.contains(['/', '\\']) && !title.starts_with('.') =>
+            {
+                title
+            }
+            _ => skill.name.as_str(),
+        };
+        let destination = self
+            .paths
+            .skill_packages_dir()
+            .join(format!("{root_name}.zip"));
+        write_skill_zip(&skill.path, root_name, &destination)?;
+        Ok(destination)
     }
 
     fn update_skill(&self, skill: &Skill) -> Result<(), CoreError> {

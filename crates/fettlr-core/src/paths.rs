@@ -74,6 +74,10 @@ impl Paths {
     pub fn skill_sources_cache(&self) -> PathBuf {
         self.support_dir.join("skill-sources")
     }
+
+    pub fn skill_packages_dir(&self) -> PathBuf {
+        self.support_dir.join("Packages")
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +170,14 @@ mod tests {
         assert_eq!(
             fake_paths().skills_cli_skills_dir(),
             PathBuf::from("/tmp/fake-home/.agents/skills")
+        );
+    }
+
+    #[test]
+    fn skill_packages_dir_hangs_off_support_dir() {
+        assert_eq!(
+            fake_paths().skill_packages_dir(),
+            PathBuf::from("/tmp/fake-support/Packages")
         );
     }
 

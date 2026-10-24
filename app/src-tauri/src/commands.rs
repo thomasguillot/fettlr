@@ -361,6 +361,18 @@ pub async fn pull_skill(state: State<'_, Arc<AppState>>, skill_id: String) -> An
 
 #[tauri::command]
 #[specta::specta]
+pub async fn package_skill(state: State<'_, Arc<AppState>>, skill_id: String) -> Answer<String> {
+    let fettlr = state.fettlr();
+    blocking(move || {
+        let skill = find_skill(&fettlr, &skill_id)?;
+        let path = fettlr.package_skill(&skill).map_err(UiError::from)?;
+        Ok(path.display().to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn install_plugin(
     state: State<'_, Arc<AppState>>,
     plugin_id: String,

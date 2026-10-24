@@ -22,10 +22,7 @@ import { ProvenanceBadge, ScopeBadge, UpdateStatusBadge } from "../badges";
 import { parkedScopeLabel } from "../projects";
 import type { SkillSelection } from "../parkable/selection";
 import { AccountSkillDetail } from "./AccountSkillDetail";
-
-function skillMarkdownPath(folderPath: string): string {
-  return `${folderPath.replace(/\/+$/, "")}/SKILL.md`;
-}
+import { skillMarkdownPath } from "./skillPaths";
 
 export function SkillDetail({
   selection,

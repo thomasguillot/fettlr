@@ -1,5 +1,6 @@
 import { Badge, Button } from "@fettlr/design-system";
 import { RiFileTextLine, RiFileZipLine, RiFolderOpenLine } from "@remixicon/react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { commands, type UiSkill } from "../../bindings";
@@ -13,12 +14,14 @@ import {
   describeAccountBehind,
   packageForUpload,
 } from "./accountSkills";
+import { skillMarkdownPath } from "./skillPaths";
 
 export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
   const { t } = useTranslation();
   const dispatch = useFettlr((state) => state.dispatch);
   const navigateToItem = useFettlr((state) => state.navigateToItem);
   const busy = useFettlr((state) => state.busy);
+  const [packaging, setPackaging] = useState(false);
   const behind = useFettlr((state) => accountBehindFor(state.snapshot, skill.id));
   const localPath = useFettlr((state) =>
     behind ? state.snapshot?.skills.find((candidate) => candidate.id === behind.localId)?.path : undefined,
@@ -99,9 +102,7 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
         <Button
           type="button"
           variant="secondary"
-          onClick={() =>
-            void dispatch(commands.openPath(`${skill.path.replace(/\/+$/, "")}/SKILL.md`))
-          }
+          onClick={() => void dispatch(commands.openPath(skillMarkdownPath(skill.path)))}
         >
           <RiFileTextLine className="size-4" aria-hidden="true" />
           {t("skills.detail.openSkillMd")}
@@ -109,8 +110,15 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
         {behind ? (
           <Button
             type="button"
-            disabled={busy}
-            onClick={() => void packageForUpload(dispatch, behind.localId)}
+            disabled={busy || packaging}
+            onClick={async () => {
+              setPackaging(true);
+              try {
+                await packageForUpload(dispatch, behind.localId);
+              } finally {
+                setPackaging(false);
+              }
+            }}
           >
             <RiFileZipLine className="size-4" aria-hidden="true" />
             {t("skills.account.package")}

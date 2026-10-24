@@ -37,6 +37,7 @@ export function UpdatesScreen() {
   const navigateToItem = useFettlr((state) => state.navigateToItem);
   const warnings = snapshot?.warnings ?? [];
   const [refreshing, setRefreshing] = useState(false);
+  const [packaging, setPackaging] = useState(false);
   const { run, running: updatingId } = useUpdateAction();
 
   const handleRefresh = async () => {
@@ -158,7 +159,14 @@ export function UpdatesScreen() {
         name: skill.title ?? skill.name,
         note: null,
         detail: describeAccountBehind(entry, t),
-        action: () => void packageForUpload(dispatch, entry.localId),
+        action: async () => {
+          setPackaging(true);
+          try {
+            await packageForUpload(dispatch, entry.localId);
+          } finally {
+            setPackaging(false);
+          }
+        },
         actionKey: "skills.account.package",
         inUpdateAll: false,
       });
@@ -261,7 +269,7 @@ export function UpdatesScreen() {
                             type="button"
                             variant="secondary"
                             size="sm"
-                            disabled={busy || runActive || updatingId !== null || row.action === null}
+                            disabled={busy || packaging || runActive || updatingId !== null || row.action === null}
                             onClick={() => row.action?.(row.id)}
                             className="relative"
                           >

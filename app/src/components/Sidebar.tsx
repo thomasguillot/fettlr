@@ -16,7 +16,7 @@ import {
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { sectionCount, needsUpdatingTotal, sections } from "../sections";
+import { needsUpdatingTotal, sectionCount, sections } from "../sections";
 import { useFettlr } from "../store";
 
 // The row's contents are held at the width they occupy when the sidebar is open, so the rail closes

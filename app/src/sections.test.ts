@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { UiSnapshot, UiUpdateReport, UiUpdateState } from "./bindings";
-import { sectionCount, sections, staleCount, needsUpdatingTotal, staleIds, staleTotal } from "./sections";
+import { needsUpdatingTotal, sectionCount, sections, staleCount, staleIds, staleTotal } from "./sections";
 
 function report(overrides: Partial<UiUpdateReport>): UiUpdateReport {
   return {

@@ -50,6 +50,10 @@ impl Paths {
         self.plugins_dir().join("known_marketplaces.json")
     }
 
+    pub fn installed_plugins_json(&self) -> PathBuf {
+        self.plugins_dir().join("installed_plugins.json")
+    }
+
     pub fn settings_json(&self) -> PathBuf {
         self.claude_dir.join("settings.json")
     }

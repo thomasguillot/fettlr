@@ -380,17 +380,39 @@ fn plugin_state(plugin: &PluginRecord, catalogue: &PluginCatalogue) -> UpdateSta
     }
     match catalogue.get(&plugin.plugin_id) {
         Some(CatalogueVersion::Version(latest)) => version_state(&plugin.version, latest),
+        Some(CatalogueVersion::Commit(sha)) if !is_short_sha(&plugin.version) => {
+            match catalogue.installed_commit(&plugin.id()) {
+                Some(installed) => pinned_state(installed, sha),
+                None => UpdateState::Unknown,
+            }
+        }
         Some(CatalogueVersion::Commit(sha)) => commit_state(&plugin.version, sha),
         Some(CatalogueVersion::Untracked) | None => UpdateState::Unknown,
     }
 }
 
-fn commit_state(installed: &str, sha: &str) -> UpdateState {
-    let is_short_sha = installed.len() == 12
-        && installed
+fn is_short_sha(value: &str) -> bool {
+    value.len() == 12
+        && value
             .chars()
-            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
-    if !is_short_sha {
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+fn pinned_state(installed: &str, pinned: &str) -> UpdateState {
+    if installed.eq_ignore_ascii_case(pinned) {
+        return UpdateState::UpToDate;
+    }
+    match (installed.get(..12), pinned.get(..12)) {
+        (Some(installed), Some(latest)) => UpdateState::UpdateAvailable {
+            installed: installed.to_ascii_lowercase(),
+            latest: latest.to_ascii_lowercase(),
+        },
+        _ => UpdateState::Unknown,
+    }
+}
+
+fn commit_state(installed: &str, sha: &str) -> UpdateState {
+    if !is_short_sha(installed) {
         return UpdateState::Unknown;
     }
     let sha = sha.to_ascii_lowercase();

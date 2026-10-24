@@ -21,9 +21,15 @@ pub enum CatalogueVersion {
 #[derive(Clone, Debug, Default)]
 pub struct PluginCatalogue {
     entries: BTreeMap<String, CatalogueVersion>,
+    installed_commits: BTreeMap<String, String>,
 }
 
 impl PluginCatalogue {
+    /// The commit Claude Code recorded for an installed plugin, keyed like `PluginRecord::id`.
+    pub fn installed_commit(&self, record_id: &str) -> Option<&str> {
+        self.installed_commits.get(record_id).map(String::as_str)
+    }
+
     pub fn get(&self, plugin_id: &str) -> Option<&CatalogueVersion> {
         self.entries.get(plugin_id)
     }
@@ -41,6 +47,7 @@ impl FromIterator<(String, CatalogueVersion)> for PluginCatalogue {
     fn from_iter<I: IntoIterator<Item = (String, CatalogueVersion)>>(iter: I) -> Self {
         Self {
             entries: iter.into_iter().collect(),
+            installed_commits: BTreeMap::new(),
         }
     }
 }
@@ -132,7 +139,51 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             );
         }
     }
-    PluginCatalogue { entries }
+    PluginCatalogue {
+        entries,
+        installed_commits: read_installed_commits(paths),
+    }
+}
+
+#[derive(Deserialize)]
+struct InstalledPlugins {
+    #[serde(default)]
+    plugins: BTreeMap<String, Vec<Value>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledPlugin {
+    scope: String,
+    #[serde(default)]
+    project_path: Option<String>,
+    #[serde(default)]
+    git_commit_sha: Option<String>,
+}
+
+fn read_installed_commits(paths: &Paths) -> BTreeMap<String, String> {
+    let mut commits = BTreeMap::new();
+    let Some(installed) = read_json::<InstalledPlugins>(&paths.installed_plugins_json()) else {
+        return commits;
+    };
+    for (plugin_id, installs) in installed.plugins {
+        for raw in installs {
+            let Ok(install) = serde_json::from_value::<InstalledPlugin>(raw) else {
+                continue;
+            };
+            let Some(sha) = install.git_commit_sha.filter(|sha| is_full_sha(sha)) else {
+                continue;
+            };
+            let scope = match (install.scope.as_str(), install.project_path) {
+                ("user", _) => "user".to_string(),
+                ("project", Some(path)) => format!("project:{path}"),
+                ("local", Some(path)) => format!("local:{path}"),
+                _ => continue,
+            };
+            commits.insert(format!("{plugin_id}#{scope}"), sha.to_ascii_lowercase());
+        }
+    }
+    commits
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {

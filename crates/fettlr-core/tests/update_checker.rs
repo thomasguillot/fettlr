@@ -998,3 +998,158 @@ fn only_github_sources_are_checked_by_sha_file() {
         UpdateState::Unknown
     );
 }
+
+const PINNED: &str = "bb92a77741419a4ab5f06e711a283343f1ada0c3";
+const OTHER_PIN: &str = "cc92a77741419a4ab5f06e711a283343f1ada0c3";
+
+fn pinned_tree(pinned: &str, installed: serde_json::Value) -> PluginCatalogue {
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "m",
+        serde_json::json!({"source": "github", "repo": "acme/m"}),
+        serde_json::json!([{
+            "name": "sp",
+            "source": {"source": "url", "url": "https://github.com/obra/sp.git", "sha": pinned}
+        }]),
+    );
+    tree.write(
+        &serde_json::json!({"version": 2, "plugins": {"sp@m": installed}}).to_string(),
+        &tree.paths.installed_plugins_json(),
+    );
+    fettlr_core::read_plugin_catalogue(&tree.paths)
+}
+
+fn scoped_plugin(json: serde_json::Value) -> PluginRecord {
+    let mut base = serde_json::json!({
+        "id": "sp@m", "version": "7.0.0", "enabled": true, "installPath": "/x",
+    });
+    base.as_object_mut()
+        .unwrap()
+        .extend(json.as_object().unwrap().clone());
+    serde_json::from_value(base).expect("decode plugin")
+}
+
+fn plugin_state_of(catalogue: &PluginCatalogue, plugin: PluginRecord) -> UpdateState {
+    let id = plugin.id();
+    default_checker()
+        .check(&[], &[plugin], catalogue, &[], &[])
+        .plugins[&id]
+        .clone()
+}
+
+#[test]
+fn a_pinned_plugin_compares_its_installed_commit_with_the_pin() {
+    let user = serde_json::json!({"scope": "user"});
+    let installed =
+        serde_json::json!([{"scope": "user", "version": "7.0.0", "gitCommitSha": PINNED}]);
+    assert_eq!(
+        plugin_state_of(
+            &pinned_tree(PINNED, installed.clone()),
+            scoped_plugin(user.clone())
+        ),
+        UpdateState::UpToDate
+    );
+    assert_eq!(
+        plugin_state_of(&pinned_tree(OTHER_PIN, installed), scoped_plugin(user)),
+        UpdateState::UpdateAvailable {
+            installed: PINNED[..12].to_string(),
+            latest: OTHER_PIN[..12].to_string()
+        }
+    );
+}
+
+#[test]
+fn a_pinned_plugin_with_no_usable_installed_commit_stays_unknown() {
+    let user = serde_json::json!({"scope": "user"});
+    for installed in [
+        serde_json::json!([]),
+        serde_json::json!([{"scope": "project", "projectPath": "/p", "gitCommitSha": PINNED}]),
+        serde_json::json!([{"scope": "user"}]),
+        serde_json::json!([{"scope": "user", "gitCommitSha": &PINNED[..39]}]),
+        serde_json::json!([{"scope": "user", "gitCommitSha": "zz92a77741419a4ab5f06e711a283343f1ada0c3"}]),
+    ] {
+        assert_eq!(
+            plugin_state_of(
+                &pinned_tree(PINNED, installed.clone()),
+                scoped_plugin(user.clone())
+            ),
+            UpdateState::Unknown,
+            "{installed}"
+        );
+    }
+}
+
+#[test]
+fn a_project_scope_pin_is_matched_by_project_path() {
+    let installed = serde_json::json!([
+        {"scope": "project", "projectPath": "/a", "gitCommitSha": OTHER_PIN},
+        {"scope": "project", "projectPath": "/b", "gitCommitSha": PINNED}
+    ]);
+    let catalogue = pinned_tree(PINNED, installed);
+    let project =
+        |path: &str| scoped_plugin(serde_json::json!({"scope": "project", "projectPath": path}));
+    assert_eq!(
+        plugin_state_of(&catalogue, project("/b")),
+        UpdateState::UpToDate
+    );
+    assert!(matches!(
+        plugin_state_of(&catalogue, project("/a")),
+        UpdateState::UpdateAvailable { .. }
+    ));
+    assert_eq!(
+        plugin_state_of(&catalogue, project("/c")),
+        UpdateState::Unknown
+    );
+}
+
+#[test]
+fn a_semver_pin_is_untouched_by_the_installed_commit() {
+    let catalogue = pinned_tree(PINNED, serde_json::json!([]));
+    let mut sha_installed = scoped_plugin(serde_json::json!({"scope": "user"}));
+    sha_installed.version = PINNED[..12].to_string();
+    assert_eq!(
+        plugin_state_of(&catalogue, sha_installed),
+        UpdateState::UpToDate
+    );
+}
+
+struct Recorder(Mutex<Vec<String>>);
+
+impl log::Log for Recorder {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        let text = record.args().to_string();
+        if text.contains("installed_plugins.json") {
+            self.0.lock().unwrap().push(text);
+        }
+    }
+    fn flush(&self) {}
+}
+
+#[test]
+fn an_unparseable_installed_plugins_file_warns_once_and_leaves_pins_unknown() {
+    static RECORDER: Recorder = Recorder(Mutex::new(Vec::new()));
+    log::set_logger(&RECORDER).expect("install logger");
+    log::set_max_level(log::LevelFilter::Warn);
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "m",
+        serde_json::json!({"source": "github", "repo": "acme/m"}),
+        serde_json::json!([{
+            "name": "sp",
+            "source": {"source": "url", "url": "https://github.com/obra/sp.git", "sha": PINNED}
+        }]),
+    );
+    tree.write("{ not json", &tree.paths.installed_plugins_json());
+    let catalogue = fettlr_core::read_plugin_catalogue(&tree.paths);
+    assert_eq!(
+        plugin_state_of(
+            &catalogue,
+            scoped_plugin(serde_json::json!({"scope": "user"}))
+        ),
+        UpdateState::Unknown
+    );
+    assert_eq!(RECORDER.0.lock().unwrap().len(), 1);
+}

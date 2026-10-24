@@ -59,6 +59,7 @@ fn skill_key(skill: &Skill) -> String {
             };
             format!("{bare}:{}", skill.name)
         }
+        Provenance::Account { .. } => format!("anthropic-skills:{}", skill.name),
         _ => skill.name.clone(),
     }
 }

@@ -12,8 +12,8 @@ use crate::models::{Scope, UpdateState};
 use crate::paths::Paths;
 use crate::skills::{
     ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
-    is_plain_name, read_skills_lock, record_skill_update, recover_interrupted_swaps,
-    replace_skill_folder, set_aside_path,
+    account_skills_behind, is_plain_name, read_skills_lock, record_skill_update,
+    recover_interrupted_swaps, replace_skill_folder, set_aside_path, write_skill_zip,
 };
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
@@ -167,6 +167,8 @@ impl Fettlr {
         let (from_plugins, plugin_skill_warnings) = plugin_skills(&plugins);
         skills.extend(from_plugins);
         warnings.extend(plugin_skill_warnings);
+        skills.extend(discovered.account_skills);
+        let account_skills_behind = account_skills_behind(&skills);
 
         let parked_subagents = match self.subagent_store.parked() {
             Ok(records) => records,
@@ -187,6 +189,7 @@ impl Fettlr {
         Ok(self.update(|snapshot| {
             snapshot.cli_available = !binary_missing;
             snapshot.skills = skills;
+            snapshot.account_skills_behind = account_skills_behind;
             snapshot.parked_skills = parked_skills;
             snapshot.subagents = subagents;
             snapshot.parked_subagents = parked_subagents;
@@ -289,7 +292,7 @@ impl Fettlr {
 
     pub fn park_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
         self.mutate(|| {
-            plugin_owned(skill)?;
+            externally_owned(skill)?;
             self.skill_store.park(skill).map(|_| ())
         })
     }
@@ -300,7 +303,7 @@ impl Fettlr {
 
     pub fn delete_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
         self.mutate(|| {
-            plugin_owned(skill)?;
+            externally_owned(skill)?;
             self.skill_store.delete(skill)
         })
     }
@@ -346,10 +349,39 @@ impl Fettlr {
         self.mutate(|| self.update_skill(skill))
     }
 
+    /// Writes the skill's folder as a ZIP the reader uploads to their Claude account by hand.
+    /// Changes nothing Fettlr lists, so it neither refreshes nor publishes.
+    pub fn package_skill(&self, skill: &Skill) -> Result<PathBuf, CoreError> {
+        if matches!(skill.provenance, Provenance::Account { .. }) {
+            return Err(CoreError::SkillManagedByAccount {
+                name: skill.name.clone(),
+            });
+        }
+        let root_name = match skill.title.as_deref() {
+            Some(title)
+                if !title.trim().is_empty()
+                    && !title.contains(['/', '\\', '\n'])
+                    && !title.starts_with('.') =>
+            {
+                title
+            }
+            _ => skill.name.as_str(),
+        };
+        let destination = self
+            .paths
+            .skill_packages_dir()
+            .join(format!("{root_name}.zip"));
+        write_skill_zip(&skill.path, root_name, &destination)?;
+        Ok(destination)
+    }
+
     fn update_skill(&self, skill: &Skill) -> Result<(), CoreError> {
         match &skill.provenance {
             Provenance::GitClone => self.git.pull_ff_only(&skill.path),
             Provenance::SkillsCli(_) => self.update_skills_cli_skill(&skill.name),
+            Provenance::Account { .. } => Err(CoreError::SkillManagedByAccount {
+                name: skill.name.clone(),
+            }),
             _ => Err(CoreError::NotAGitClone {
                 name: skill.name.clone(),
             }),
@@ -630,15 +662,19 @@ enum StaleItem {
 }
 
 // A plugin's skill folder belongs to the plugin's own install, so moving or trashing it corrupts
-// the plugin. The window never offers either action for one; this refuses it at the core anyway.
-fn plugin_owned(skill: &Skill) -> Result<(), CoreError> {
-    if let Provenance::Plugin { plugin_id } = &skill.provenance {
-        return Err(CoreError::SkillManagedByPlugin {
+// the plugin, and an account skill's folder is rewritten by every sync. The window never offers
+// either action for one; this refuses it at the core anyway.
+fn externally_owned(skill: &Skill) -> Result<(), CoreError> {
+    match &skill.provenance {
+        Provenance::Plugin { plugin_id } => Err(CoreError::SkillManagedByPlugin {
             name: skill.name.clone(),
             plugin_id: plugin_id.clone(),
-        });
+        }),
+        Provenance::Account { .. } => Err(CoreError::SkillManagedByAccount {
+            name: skill.name.clone(),
+        }),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 fn plugin_owned_subagent(subagent: &Subagent) -> Result<(), CoreError> {

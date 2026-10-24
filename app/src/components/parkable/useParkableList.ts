@@ -52,6 +52,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
   activeSearchValue,
   activeSortKey,
   parkedSearchValue,
+  trailing,
 }: {
   section: "skills" | "subagents";
   kind: K;
@@ -65,6 +66,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
   activeSearchValue: (item: A) => string;
   activeSortKey: (item: A) => string;
   parkedSearchValue: (parked: P) => string;
+  trailing?: (item: A) => boolean;
 }) {
   const { t } = useTranslation();
   const pane = useDetailPane(section);
@@ -109,7 +111,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
     );
   }, [items, plugins, sourceKinds, t]);
 
-  const filteredItems = useMemo(
+  const matchingItems = useMemo(
     () =>
       items
         .filter(
@@ -120,6 +122,16 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
         )
         .sort((a, b) => activeSortKey(a).localeCompare(activeSortKey(b))),
     [items, scopeFilter, sourceFilter, query, activeSearchValue, activeSortKey],
+  );
+
+  const filteredItems = useMemo(
+    () => (trailing ? matchingItems.filter((item) => !trailing(item)) : matchingItems),
+    [matchingItems, trailing],
+  );
+
+  const filteredTrailing = useMemo(
+    () => (trailing ? matchingItems.filter((item) => trailing(item)) : []),
+    [matchingItems, trailing],
   );
 
   // A parked item has no provenance to match, so any source filter excludes the whole group.
@@ -139,9 +151,10 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
   const flatOptions = useMemo<Selection<K>[]>(
     () => [
       ...filteredItems.map((item) => ({ kind, id: item.id })),
+      ...filteredTrailing.map((item) => ({ kind, id: item.id })),
       ...filteredParked.map((entry) => ({ kind: "parked" as const, id: entry.id })),
     ],
-    [filteredItems, filteredParked, kind],
+    [filteredItems, filteredTrailing, filteredParked, kind],
   );
 
   useRevealReset(
@@ -159,7 +172,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
     storedSelection !== null &&
     (storedSelection.kind === "parked"
       ? filteredParked.some((entry) => entry.id === storedSelection.id)
-      : filteredItems.some((item) => item.id === storedSelection.id));
+      : matchingItems.some((item) => item.id === storedSelection.id));
   const open = pane.open && exists;
   const selection = open ? storedSelection : null;
 
@@ -266,6 +279,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
     query,
     setQuery,
     filteredItems,
+    filteredTrailing,
     filteredParked,
     storedSelection,
     open,
@@ -274,7 +288,7 @@ export function useParkableList<A extends ParkableActive, P extends ParkablePark
     handleListKeyDown,
     optionProps,
     closeDetail,
-    noResults: filteredItems.length === 0 && filteredParked.length === 0,
+    noResults: matchingItems.length === 0 && filteredParked.length === 0,
     nothingExists: items.length === 0 && parked.length === 0,
   };
 }

@@ -4,7 +4,7 @@ use crate::cli_records::{MarketplaceRecord, McpConnector, PluginRecord};
 use crate::discovery::ProjectEntry;
 use crate::fettlr::UpdateFailure;
 use crate::mcp::McpServer;
-use crate::skills::{ParkedSkill, ParkedSubagent, Skill};
+use crate::skills::{AccountSkillBehind, ParkedSkill, ParkedSubagent, Skill};
 use crate::subagents::Subagent;
 use crate::updates::UpdateReport;
 use crate::usage::UsageIndex;
@@ -13,6 +13,7 @@ use crate::usage::UsageIndex;
 pub struct Snapshot {
     pub cli_available: bool,
     pub skills: Vec<Skill>,
+    pub account_skills_behind: Vec<AccountSkillBehind>,
     pub parked_skills: Vec<ParkedSkill>,
     pub subagents: Vec<Subagent>,
     pub parked_subagents: Vec<ParkedSubagent>,

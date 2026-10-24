@@ -406,7 +406,7 @@ fn version_state(installed: &str, latest: &str) -> UpdateState {
 /// A leading `v` is the one decoration common enough to be worth reading through: `v1.2.0` and
 /// `1.2.0` are the same release, and treating them as uncomparable would report a permanent
 /// unknown for a plugin that is simply up to date.
-fn numeric_fields(version: &str) -> Option<Vec<i64>> {
+pub(crate) fn numeric_fields(version: &str) -> Option<Vec<i64>> {
     version
         .strip_prefix(['v', 'V'])
         .unwrap_or(version)
@@ -415,7 +415,7 @@ fn numeric_fields(version: &str) -> Option<Vec<i64>> {
         .collect()
 }
 
-fn is_older(current: &[i64], newest: &[i64]) -> bool {
+pub(crate) fn is_older(current: &[i64], newest: &[i64]) -> bool {
     for index in 0..current.len().max(newest.len()) {
         let left = current.get(index).copied().unwrap_or(0);
         let right = newest.get(index).copied().unwrap_or(0);

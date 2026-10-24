@@ -13,6 +13,10 @@ impl Paths {
         self.claude_dir.join("skills")
     }
 
+    pub fn account_skills_dir(&self) -> PathBuf {
+        self.skills_dir().join("synced")
+    }
+
     pub fn agents_dir(&self) -> PathBuf {
         self.claude_dir.join("agents")
     }
@@ -70,6 +74,10 @@ impl Paths {
     pub fn skill_sources_cache(&self) -> PathBuf {
         self.support_dir.join("skill-sources")
     }
+
+    pub fn skill_packages_dir(&self) -> PathBuf {
+        self.support_dir.join("Packages")
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +134,14 @@ mod tests {
     }
 
     #[test]
+    fn account_skills_dir_hangs_off_skills_dir() {
+        assert_eq!(
+            fake_paths().account_skills_dir(),
+            PathBuf::from("/tmp/fake-home/.claude/skills/synced")
+        );
+    }
+
+    #[test]
     fn settings_json_hangs_off_claude_dir() {
         assert_eq!(
             fake_paths().settings_json(),
@@ -154,6 +170,14 @@ mod tests {
         assert_eq!(
             fake_paths().skills_cli_skills_dir(),
             PathBuf::from("/tmp/fake-home/.agents/skills")
+        );
+    }
+
+    #[test]
+    fn skill_packages_dir_hangs_off_support_dir() {
+        assert_eq!(
+            fake_paths().skill_packages_dir(),
+            PathBuf::from("/tmp/fake-support/Packages")
         );
     }
 

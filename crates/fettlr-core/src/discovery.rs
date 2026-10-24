@@ -9,7 +9,7 @@ use crate::cli_records::{CoreError, McpServerConfig, PluginRecord};
 use crate::frontmatter::parse_frontmatter;
 use crate::models::Scope;
 use crate::paths::Paths;
-use crate::skills::{Provenance, Skill, SkillsLock, read_skills_lock};
+use crate::skills::{Provenance, Skill, SkillsLock, account_skills, read_skills_lock};
 use crate::subagents::Subagent;
 use crate::usage::UsageIndex;
 
@@ -29,6 +29,7 @@ pub struct DiscoveredConfig {
     pub user_mcp_servers: BTreeMap<String, McpServerConfig>,
     pub projects: Vec<ProjectEntry>,
     pub user_skills: Vec<Skill>,
+    pub account_skills: Vec<Skill>,
     pub project_skills: Vec<Skill>,
     pub user_subagents: Vec<Subagent>,
     pub project_subagents: Vec<Subagent>,
@@ -46,6 +47,7 @@ impl Default for DiscoveredConfig {
             user_mcp_servers: BTreeMap::new(),
             projects: Vec::new(),
             user_skills: Vec::new(),
+            account_skills: Vec::new(),
             project_skills: Vec::new(),
             user_subagents: Vec::new(),
             project_subagents: Vec::new(),
@@ -76,7 +78,10 @@ pub fn discover(paths: &Paths) -> Result<DiscoveredConfig, CoreError> {
     let projects = project_entries(root.get("projects"), &location, &mut warnings);
     let usage = UsageIndex::from_root(&root);
     let mut user_skills = skills_in(&paths.skills_dir(), &Scope::User, true, &mut warnings);
+    let account_dir = paths.account_skills_dir();
+    user_skills.retain(|skill| skill.path != account_dir || account_dir.join("SKILL.md").is_file());
     label_skills_cli_skills(&mut user_skills, paths, &mut warnings);
+    let account_skills = account_skills(paths, &mut warnings);
     let user_subagents = subagents_in(&paths.agents_dir(), &Scope::User, &mut warnings);
 
     let mut project_skills = Vec::new();
@@ -121,6 +126,7 @@ pub fn discover(paths: &Paths) -> Result<DiscoveredConfig, CoreError> {
         user_mcp_servers,
         projects,
         user_skills,
+        account_skills,
         project_skills,
         user_subagents,
         project_subagents,
@@ -402,7 +408,10 @@ fn skills_in(
         .collect()
 }
 
-fn skill_frontmatter_fields(folder: &Path, warnings: &mut Vec<String>) -> BTreeMap<String, String> {
+pub(crate) fn skill_frontmatter_fields(
+    folder: &Path,
+    warnings: &mut Vec<String>,
+) -> BTreeMap<String, String> {
     let markdown_path = folder.join("SKILL.md");
     let mut fields = BTreeMap::new();
     if markdown_path.is_file() {
@@ -548,7 +557,7 @@ fn provenance_of(folder: &Path, trusted: bool) -> Provenance {
     }
 }
 
-fn non_empty(value: Option<&String>) -> Option<String> {
+pub(crate) fn non_empty(value: Option<&String>) -> Option<String> {
     value.filter(|value| !value.is_empty()).cloned()
 }
 

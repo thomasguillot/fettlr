@@ -1,5 +1,25 @@
 use std::collections::BTreeMap;
 
+pub(crate) fn markdown_body(markdown: &str) -> String {
+    let normalized = markdown
+        .trim_start_matches('\u{feff}')
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let mut lines = normalized
+        .split('\n')
+        .skip_while(|line| line.trim().is_empty());
+    if lines.next().is_some_and(|opening| opening.trim() == "---") {
+        let rest: Vec<&str> = lines.collect();
+        if let Some(closing) = rest
+            .iter()
+            .position(|line| matches!(line.trim(), "---" | "..."))
+        {
+            return rest[closing + 1..].join("\n").trim().to_string();
+        }
+    }
+    normalized.trim().to_string()
+}
+
 pub fn parse_frontmatter(markdown: &str) -> BTreeMap<String, String> {
     // U+FEFF is not `char::is_whitespace`, so an editor that writes a byte order mark would leave
     // the opening fence unrecognisable and discard the whole block.
@@ -27,7 +47,7 @@ pub fn parse_frontmatter(markdown: &str) -> BTreeMap<String, String> {
         if trimmed.is_empty() {
             continue;
         }
-        if is_indented(line) {
+        if is_indented(line) || trimmed.starts_with("- ") {
             if let Some((key, style)) = &block {
                 let folded = fields.entry(key.clone()).or_insert_with(String::new);
                 if !folded.is_empty() {
@@ -98,5 +118,37 @@ fn unquoted(value: &str) -> &str {
         &value[1..value.len() - 1]
     } else {
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn an_unindented_list_item_is_not_a_key() {
+        let flush = parse_frontmatter("---\nname: x\nallowed-tools:\n- Bash(git add:*)\n---\n");
+        let indented =
+            parse_frontmatter("---\nname: x\nallowed-tools:\n  - Bash(git add:*)\n---\n");
+        assert_eq!(flush, indented);
+        assert!(!flush.contains_key("- Bash(git add"));
+    }
+
+    use super::*;
+
+    #[test]
+    fn the_body_starts_after_the_closing_fence() {
+        let markdown = "---\nname: a\n---\n\n# Title\n\nText\n";
+        assert_eq!(markdown_body(markdown), "# Title\n\nText");
+    }
+
+    #[test]
+    fn a_file_without_frontmatter_is_all_body() {
+        assert_eq!(markdown_body("\n# Title\n\nText\n"), "# Title\n\nText");
+    }
+
+    #[test]
+    fn a_bom_and_crlf_do_not_change_the_body() {
+        let plain = "---\nname: a\n---\n\n# Title\n\nText\n";
+        let windows = format!("\u{feff}{}", plain.replace('\n', "\r\n"));
+        assert_eq!(markdown_body(&windows), markdown_body(plain));
     }
 }

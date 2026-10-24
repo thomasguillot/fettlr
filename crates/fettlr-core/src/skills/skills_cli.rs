@@ -165,7 +165,7 @@ pub(crate) fn set_aside_path(paths: &Paths, name: &str) -> PathBuf {
     paths.skills_cli_dir().join(SET_ASIDE_DIR).join(name)
 }
 
-fn is_real_dir(path: &Path) -> bool {
+pub(crate) fn is_real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
 }
 

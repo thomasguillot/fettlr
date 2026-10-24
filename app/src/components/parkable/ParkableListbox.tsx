@@ -43,6 +43,8 @@ export function ParkableListbox({
   onKeyDown,
   parkedHeading,
   parkedRows,
+  trailingHeading,
+  trailingRows = [],
   children,
 }: {
   listRef: Ref<HTMLUListElement>;
@@ -51,6 +53,8 @@ export function ParkableListbox({
   onKeyDown: (event: KeyboardEvent<HTMLUListElement>) => void;
   parkedHeading: string;
   parkedRows: ReactNode[];
+  trailingHeading?: string;
+  trailingRows?: ReactNode[];
   children: ReactNode;
 }) {
   return (
@@ -65,6 +69,14 @@ export function ParkableListbox({
         className={cn("flex flex-col", insetFocusRing)}
       >
         {children}
+        {trailingRows.length > 0 ? (
+          <>
+            <li role="presentation" className={cn(groupHeading, capsHeading)}>
+              {trailingHeading}
+            </li>
+            {trailingRows}
+          </>
+        ) : null}
         {parkedRows.length > 0 ? (
           <>
             <li role="presentation" className={cn(groupHeading, capsHeading)}>

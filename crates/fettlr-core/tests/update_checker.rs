@@ -855,3 +855,24 @@ fn a_skills_cli_folder_that_climbs_out_of_the_source_is_unknown_without_a_fetch(
     assert_eq!(report.skills["user/evil"], UpdateState::Unknown);
     assert_eq!(git.fetch_count(EMIL_URL), 0);
 }
+
+#[test]
+fn an_account_skill_is_never_checked() {
+    let account = skill(
+        "impeccable",
+        Provenance::Account {
+            updated_at: "2026-10-24T12:57:30Z".to_string(),
+        },
+        "/skills/synced/b1/impeccable",
+    );
+    let git = Arc::new(FakeGitProbe::with_counts([(
+        "/skills/synced/b1/impeccable",
+        4,
+    )]));
+    let checker = UpdateChecker::new(git.clone(), Arc::new(FakeRegistryClient::new()));
+
+    let report = check_skills(&checker, &[account]);
+
+    assert_eq!(report.skills["user/impeccable"], UpdateState::Unknown);
+    assert!(git.fetched_references().is_empty());
+}

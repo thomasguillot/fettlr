@@ -243,8 +243,53 @@ fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
     }
 }
 
+fn account_and_plugin_copy(tree: &TempTree) -> (PathBuf, Arc<ScriptedCliRunner>) {
+    let uploaded = json!([{
+        "skillId": "skill_x",
+        "name": "impeccable",
+        "source": "plugin",
+        "updatedAt": "2026-10-24T12:57:30Z"
+    }]);
+    tree.write_account_manifest("b1", 1, uploaded);
+    let account = tree.make_account_skill(
+        "b1",
+        "impeccable",
+        "---\nname: impeccable\ndescription: d\n---\n\nold body\n",
+    );
+    tree.make_skill(
+        "impeccable",
+        &tree.plugin_skills_dir("impeccable"),
+        Some("---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nnew body\n"),
+        false,
+    );
+    let install_path = tree.plugin_install_dir("impeccable").display().to_string();
+    let runner = Arc::new(ScriptedCliRunner::new());
+    runner.set_plugin_list(&format!(
+        r#"[{{"id": "impeccable@impeccable", "version": "4.7.1", "scope": "user", "enabled": true, "installPath": "{install_path}"}}]"#
+    ));
+    (account, runner)
+}
+
 mod refresh {
     use super::*;
+
+    #[test]
+    fn refresh_flags_an_account_skill_a_newer_plugin_copy_supersedes() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+
+        let snapshot = fettlr.refresh().expect("refresh");
+
+        assert_eq!(
+            snapshot.account_skills_behind,
+            vec![fettlr_core::AccountSkillBehind {
+                account_id: "account:impeccable".into(),
+                local_id: "plugin:impeccable@impeccable/impeccable".into(),
+                local_version: Some("4.7.1".into()),
+            }]
+        );
+    }
 
     #[test]
     fn assembles_a_snapshot_from_every_source() {
@@ -284,6 +329,34 @@ mod refresh {
         assert!(snapshot.last_refreshed.is_some());
         assert!(snapshot.available_plugins.is_empty());
         assert!(snapshot.update_report.is_none());
+    }
+
+    #[test]
+    fn refresh_lists_account_skills_beside_user_skills() {
+        let tree = TempTree::new();
+        tree.make_skill(
+            "demo",
+            &tree.user_skills_dir(),
+            Some(&TempTree::skill_markdown("demo", "A demo skill")),
+            false,
+        );
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let fettlr = fettlr_with(Arc::new(ScriptedCliRunner::new()), &tree);
+
+        let snapshot = fettlr.refresh().expect("refresh succeeds");
+
+        let mut ids: Vec<_> = snapshot.skills.iter().map(|s| s.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["account:impeccable", "user/demo"]);
     }
 
     #[test]
@@ -422,6 +495,161 @@ mod checking_for_updates {
 
 mod mutations {
     use super::*;
+
+    fn plugin_skill_snapshot(
+        tree: &TempTree,
+        folder: &str,
+        frontmatter_name: &str,
+    ) -> (Fettlr, fettlr_core::Skill) {
+        tree.make_skill(
+            folder,
+            &tree.plugin_skills_dir("impeccable"),
+            Some(&TempTree::skill_markdown(frontmatter_name, "d")),
+            false,
+        );
+        let install_path = tree.plugin_install_dir("impeccable").display().to_string();
+        let runner = Arc::new(ScriptedCliRunner::new());
+        runner.set_plugin_list(&format!(
+            r#"[{{"id": "impeccable@impeccable", "version": "4.7.1", "scope": "user", "enabled": true, "installPath": "{install_path}"}}]"#
+        ));
+        let fettlr = fettlr_with(runner, tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .into_iter()
+            .find(|skill| skill.name == folder)
+            .expect("skill listed");
+        (fettlr, skill)
+    }
+
+    fn zip_entries(path: &Path) -> Vec<String> {
+        let archive = zip::ZipArchive::new(std::fs::File::open(path).expect("open")).expect("zip");
+        archive
+            .file_names()
+            .map(|name| name.expect("name").into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn package_skill_writes_into_the_packages_folder_under_the_skills_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "impeccable", "impeccable");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("impeccable.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("impeccable/"))
+        );
+    }
+
+    #[test]
+    fn the_zip_root_is_the_frontmatter_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "house-style");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert!(path.ends_with("house-style.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("house-style/"))
+        );
+    }
+
+    #[test]
+    fn a_path_like_frontmatter_name_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "../escape");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("my-skill/"))
+        );
+    }
+
+    #[test]
+    fn a_whitespace_only_frontmatter_name_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "\"   \"");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("my-skill/"))
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_name_with_a_newline_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, mut skill) = plugin_skill_snapshot(&tree, "my-skill", "x");
+        skill.title = Some("a\nb".into());
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+    }
+
+    #[test]
+    fn an_account_skill_cannot_be_packaged() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let account = snapshot
+            .skills
+            .into_iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("account skill");
+
+        let result = fettlr.package_skill(&account);
+
+        assert!(matches!(
+            result,
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+    }
+
+    #[test]
+    fn update_all_never_touches_an_account_skill() {
+        let tree = TempTree::new();
+        let (account, runner) = account_and_plugin_copy(&tree);
+        let before = std::fs::read(account.join("SKILL.md")).expect("read");
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.check_updates().expect("check");
+
+        let progress = Arc::new(Mutex::new(Vec::new()));
+        let recorder = progress.clone();
+        let snapshot = fettlr
+            .update_all(&move |update: UpdateProgress| {
+                recorder.lock().expect("lock poisoned").push(update.id);
+            })
+            .expect("update_all");
+
+        assert!(
+            !progress
+                .lock()
+                .expect("lock poisoned")
+                .contains(&"account:impeccable".to_string())
+        );
+        assert!(snapshot.update_failures.is_empty());
+        assert_eq!(
+            std::fs::read(account.join("SKILL.md")).expect("read"),
+            before
+        );
+    }
 
     #[test]
     fn a_mutation_re_reads_and_reflects_the_new_state() {
@@ -1062,6 +1290,71 @@ mod subagents {
         let after_restore = fettlr.restore_subagent(&parked).expect("restore");
         assert_eq!(after_restore.subagents.len(), 1);
         assert!(after_restore.parked_subagents.is_empty());
+    }
+
+    #[test]
+    fn an_account_skill_cannot_be_parked_or_deleted() {
+        let tree = TempTree::new();
+        tree.write_claude_json(json!({ "projects": {} }));
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        let folder = tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let trasher = Arc::new(FakeTrasher::new());
+        let fettlr = fettlr_with_trasher(&tree, trasher.clone());
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("listed")
+            .clone();
+
+        assert!(matches!(
+            fettlr.park_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+        assert!(matches!(
+            fettlr.delete_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+        assert!(folder.exists());
+        assert!(trasher.trashed().is_empty());
+    }
+
+    #[test]
+    fn an_account_skill_cannot_be_pulled() {
+        let tree = TempTree::new();
+        tree.write_claude_json(json!({ "projects": {} }));
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let fettlr = fettlr_with(scripted_runner(), &tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("listed")
+            .clone();
+
+        assert!(matches!(
+            fettlr.pull_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
     }
 
     #[test]

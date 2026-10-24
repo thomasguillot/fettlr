@@ -1401,3 +1401,45 @@ mod skills_cli {
         assert_eq!(skill.provenance, Provenance::Local);
     }
 }
+
+#[test]
+fn the_account_sync_folder_is_not_a_skill() {
+    let tree = TempTree::new();
+    tree.write_account_manifest(
+        "b1",
+        1,
+        json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+    );
+    tree.make_account_skill(
+        "b1",
+        "impeccable",
+        &TempTree::skill_markdown("impeccable", "Design skill"),
+    );
+
+    let config = discover(&tree.paths).expect("discover");
+
+    assert!(
+        config
+            .user_skills
+            .iter()
+            .all(|skill| skill.name != "synced")
+    );
+}
+
+#[test]
+fn a_real_skill_named_synced_is_still_listed() {
+    let tree = TempTree::new();
+    tree.write(
+        &TempTree::skill_markdown("synced", "A real skill"),
+        &tree.paths.skills_dir().join("synced").join("SKILL.md"),
+    );
+
+    let config = discover(&tree.paths).expect("discover");
+
+    let skill = config
+        .user_skills
+        .iter()
+        .find(|skill| skill.id == "user/synced")
+        .expect("synced is listed");
+    assert_eq!(skill.provenance, Provenance::Local);
+}

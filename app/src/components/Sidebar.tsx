@@ -16,7 +16,7 @@ import {
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { sectionCount, sections, staleTotal } from "../sections";
+import { needsUpdatingTotal, sectionCount, sections } from "../sections";
 import { useFettlr } from "../store";
 
 // The row's contents are held at the width they occupy when the sidebar is open, so the rail closes
@@ -48,7 +48,7 @@ export function Sidebar() {
   const appUpdate = useFettlr((state) => state.appUpdate);
   const prefs = useFettlr((state) => state.prefs);
   const savePrefs = useFettlr((state) => state.savePrefs);
-  const stale = staleTotal(snapshot?.updateReport);
+  const stale = needsUpdatingTotal(snapshot);
   const collapsed = prefs?.sidebarCollapsed ?? false;
 
   // Rows resize under a stationary cursor, which the browser reports as a hover the reader never

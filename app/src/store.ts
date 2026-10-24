@@ -12,10 +12,9 @@ import {
   type UiPalette,
   type UiPrefs,
   type UiSnapshot,
-  type UiUpdateReport,
   type UiUpdateStage,
 } from "./bindings";
-import { type SectionId, staleTotal } from "./sections";
+import { type SectionId, needsUpdatingTotal } from "./sections";
 import { failureKey } from "./updateFailures";
 
 export type DetailSection =
@@ -350,13 +349,12 @@ export async function startEventBridge(): Promise<() => void> {
   };
 }
 
-let badgedReport: UiUpdateReport | null | undefined;
+let badgedTotal: number | undefined;
 useFettlr.subscribe((state) => {
-  const report = state.snapshot?.updateReport ?? null;
-  if (report === badgedReport) return;
-  badgedReport = report;
+  const total = needsUpdatingTotal(state.snapshot);
+  if (total === badgedTotal) return;
+  badgedTotal = total;
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
-  const total = staleTotal(report);
   void getCurrentWindow()
     .setBadgeCount(total > 0 ? total : undefined)
     .catch(() => undefined);

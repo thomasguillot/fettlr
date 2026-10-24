@@ -1,5 +1,5 @@
 import { Badge, cn } from "@fettlr/design-system";
-import { RiGitBranchLine, RiHardDrive2Line, RiPuzzleLine, RiTerminalBoxLine } from "@remixicon/react";
+import { RiCloudLine, RiGitBranchLine, RiHardDrive2Line, RiPuzzleLine, RiTerminalBoxLine } from "@remixicon/react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -34,6 +34,8 @@ function provenanceDisplay(provenance: UiProvenance, t: (key: string) => string)
       return { Icon: RiTerminalBoxLine, label: t("skills.provenanceSkillsCli") };
     case "plugin":
       return { Icon: RiPuzzleLine, label: t("skills.provenancePlugin") };
+    case "account":
+      return { Icon: RiCloudLine, label: t("skills.provenanceAccount") };
   }
 }
 

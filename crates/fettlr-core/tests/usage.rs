@@ -229,3 +229,27 @@ fn a_claude_json_without_usage_leaves_discovery_working() {
     let skill = &config.user_skills[0];
     assert!(config.usage.for_skill(skill).is_none());
 }
+
+#[test]
+fn an_account_skill_is_keyed_under_anthropic_skills() {
+    let mut root = Map::new();
+    root.insert(
+        "skillUsage".to_string(),
+        json!({"anthropic-skills:impeccable": {"usageCount": 7}}),
+    );
+    let index = UsageIndex::from_root(&root);
+    let account = Skill {
+        id: "account:impeccable".to_string(),
+        name: "impeccable".to_string(),
+        title: None,
+        summary: None,
+        scope: Scope::User,
+        provenance: Provenance::Account {
+            updated_at: "2026-10-24T12:57:30Z".to_string(),
+        },
+        path: PathBuf::from("/tmp/impeccable"),
+    };
+
+    assert_eq!(index.for_skill(&account).unwrap().count, 7);
+    assert!(index.for_skill(&loose_skill("impeccable")).is_none());
+}

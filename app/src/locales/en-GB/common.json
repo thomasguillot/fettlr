@@ -52,7 +52,8 @@
     "usageCountSince_one": "{{count}} time · last used {{when}}",
     "usageCountSince_other": "{{count}} times · last used {{when}}",
     "upToDate": "Up to date",
-    "unknownStatus": "Unknown"
+    "unknownStatus": "Unknown",
+    "updateAvailable": "Update available"
   },
   "warnings": {
     "title_one": "One thing could not be read",
@@ -219,8 +220,10 @@
       "enable": "Enable",
       "pull": "Pull",
       "deleteTitle": "Delete this skill?",
-      "deleteDescription": "This moves \"{{name}}\" to the Trash. You can restore it from Finder if you change your mind."
-    }
+      "deleteDescription": "This moves \"{{name}}\" to the Trash. You can restore it from Finder if you change your mind.",
+      "source": "Source"
+    },
+    "provenanceSkillsCli": "Skills CLI"
   },
   "subagents": {
     "listLabel": "Subagents list",

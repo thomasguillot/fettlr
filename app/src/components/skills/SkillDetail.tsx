@@ -72,6 +72,8 @@ function ActiveSkillDetail({ skill, onRemoved }: { skill: UiSkill; onRemoved: ()
 
   const isPlugin = skill.provenance.kind === "plugin";
   const isGitClone = skill.provenance.kind === "gitClone";
+  const isSkillsCli = skill.provenance.kind === "skillsCli";
+  const isUpdatable = isGitClone || isSkillsCli;
   const pluginId = skill.provenance.kind === "plugin" ? skill.provenance.pluginId : null;
   const updateState = updateReport?.skills[skill.id];
   const stale = staleIds(updateReport, "skills").has(skill.id);
@@ -108,10 +110,15 @@ function ActiveSkillDetail({ skill, onRemoved }: { skill: UiSkill; onRemoved: ()
         <DetailRow label={t("skills.detail.provenance")}>
           <ProvenanceBadge provenance={skill.provenance} />
         </DetailRow>
+        {skill.provenance.kind === "skillsCli" ? (
+          <DetailRow label={t("skills.detail.source")}>
+            <code className={codeChip}>{skill.provenance.source}</code>
+          </DetailRow>
+        ) : null}
         <UsageRow usage={skill.usage} />
-        {isGitClone ? (
+        {isUpdatable ? (
           <DetailRow label={t("skills.detail.updateStatus")}>
-            <UpdateStatusBadge state={updateState} pending="behind" />
+            <UpdateStatusBadge state={updateState} pending={isGitClone ? "behind" : "sourceChanged"} />
           </DetailRow>
         ) : null}
         <DetailRow label={t("skills.detail.path")}>
@@ -138,7 +145,7 @@ function ActiveSkillDetail({ skill, onRemoved }: { skill: UiSkill; onRemoved: ()
           <RiFileTextLine className="size-4" aria-hidden="true" />
           {t("skills.detail.openSkillMd")}
         </Button>
-        {isGitClone ? (
+        {isUpdatable ? (
           <Button
             type="button"
             variant="secondary"
@@ -150,7 +157,7 @@ function ActiveSkillDetail({ skill, onRemoved }: { skill: UiSkill; onRemoved: ()
             ) : (
               <RiArrowUpCircleLine className="size-4" aria-hidden="true" />
             )}
-            {t("skills.detail.pull")}
+            {isGitClone ? t("skills.detail.pull") : t("common.update")}
           </Button>
         ) : null}
         {!isPlugin ? (

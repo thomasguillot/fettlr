@@ -24,6 +24,7 @@ const EMPTY_PARKED: UiParkedSkill[] = [];
 const SOURCE_KINDS: readonly SourceKind[] = [
   { kind: "local", labelKey: "skills.provenanceLocal" },
   { kind: "gitClone", labelKey: "skills.provenanceGit" },
+  { kind: "skillsCli", labelKey: "skills.provenanceSkillsCli" },
 ];
 
 function skillUpdateState(

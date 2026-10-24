@@ -15,14 +15,15 @@
           "@accesslint/mcp@latest"
         ]
       }
-    }
+    },
+    "projectEnabled": false
   },
   {
     "id": "context7@claude-plugins-official",
-    "version": "unknown",
+    "version": "58267944f921",
     "scope": "project",
     "enabled": true,
-    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/unknown",
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/58267944f921",
     "installedAt": "2026-03-18T14:31:56.470Z",
     "lastUpdated": "2026-08-22T13:14:53.211Z",
     "projectPath": "/Users/dev/Sites/example-project",
@@ -34,14 +35,15 @@
           "@upstash/context7-mcp"
         ]
       }
-    }
+    },
+    "projectEnabled": false
   },
   {
     "id": "context7@claude-plugins-official",
-    "version": "unknown",
+    "version": "58267944f921",
     "scope": "user",
     "enabled": true,
-    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/unknown",
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/58267944f921",
     "installedAt": "2026-08-07T07:30:51.885Z",
     "lastUpdated": "2026-08-22T14:17:10.879Z",
     "mcpServers": {
@@ -52,14 +54,15 @@
           "@upstash/context7-mcp"
         ]
       }
-    }
+    },
+    "projectEnabled": false
   },
   {
     "id": "linear@claude-plugins-official",
-    "version": "unknown",
+    "version": "58267944f921",
     "scope": "project",
     "enabled": false,
-    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/unknown",
+    "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/58267944f921",
     "installedAt": "2026-03-18T14:31:56.664Z",
     "lastUpdated": "2026-08-22T13:14:53.210Z",
     "projectPath": "/Users/dev/Sites/example-project",
@@ -68,6 +71,7 @@
         "type": "http",
         "url": "https://mcp.linear.app/mcp"
       }
-    }
+    },
+    "projectEnabled": false
   }
 ]

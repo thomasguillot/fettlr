@@ -191,10 +191,10 @@ pub fn parse_marketplace_list(json: &str) -> Result<Vec<MarketplaceRecord>, Core
     Ok(serde_json::from_str(json)?)
 }
 
-/// The whole marketplace catalogue, including plugins that are already installed. Unlike
-/// `parse_plugin_list(..., include_available: true)` (which drops an available-only entry once an
-/// installed one shares its id), this keeps every catalogue entry so a caller can compare an
-/// installed plugin's version against its own catalogue listing.
+/// The catalogue Claude Code offers for install. It leaves out plugins already installed at user
+/// scope or enabled in the current project, so it feeds Browse only and is not an update source.
+/// Unlike `parse_plugin_list(..., include_available: true)` (which drops an available-only entry
+/// once an installed one shares its id), this keeps every catalogue entry.
 pub fn parse_plugin_catalogue(json: &str) -> Result<Vec<PluginRecord>, CoreError> {
     Ok(match plugin_payload(json)? {
         PluginListPayload::Flat(plugins) => plugins

@@ -75,7 +75,7 @@ mod reads {
     }
 
     #[test]
-    fn plugin_catalogue_sends_available_flag_and_keeps_installed_overlap() {
+    fn plugin_catalogue_sends_the_available_flag() {
         let (runner, cli) = cli(FakeCliRunner::with_stdout(PLUGIN_LIST_AVAILABLE));
         let catalogue = cli.plugin_catalogue().expect("valid fixture");
 

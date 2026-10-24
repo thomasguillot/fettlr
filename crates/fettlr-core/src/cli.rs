@@ -321,9 +321,9 @@ impl ClaudeCli {
         parse_plugin_list(&output.stdout)
     }
 
-    /// The whole marketplace catalogue, including plugins that are already installed, which
-    /// `list_plugins()` leaves out. `UpdateChecker` compares installed versions against this, so
-    /// feeding it the merged list instead leaves every installed plugin `Unknown`.
+    /// The catalogue Claude Code offers for install. It leaves out plugins already installed at
+    /// user scope or enabled in the current project, so it feeds Browse only and is not an update
+    /// source.
     pub fn plugin_catalogue(&self) -> Result<Vec<PluginRecord>, CoreError> {
         let args = args(&["plugin", "list", "--json", "--available"]);
         let output = self.run(&args, None)?;

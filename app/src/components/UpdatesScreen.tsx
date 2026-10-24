@@ -167,7 +167,7 @@ export function UpdatesScreen() {
             setPackaging(false);
           }
         },
-        actionKey: "skills.account.package",
+        actionKey: "skills.account.packageShort",
         inUpdateAll: false,
       });
     }
@@ -286,12 +286,12 @@ export function UpdatesScreen() {
                               </>
                             ) : stage === "updated" ? (
                               <>
-                                <RiCheckLine className="absolute inset-0 m-auto size-4 text-success-text" aria-hidden="true" />
+                                <RiCheckLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
                                 <span className="sr-only">{t("common.updated")}</span>
                               </>
                             ) : stage === "failed" ? (
                               <>
-                                <RiAlertLine className="absolute inset-0 m-auto size-4 text-danger-text" aria-hidden="true" />
+                                <RiAlertLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
                                 <span className="sr-only">{t("common.updateFailed")}</span>
                               </>
                             ) : null}

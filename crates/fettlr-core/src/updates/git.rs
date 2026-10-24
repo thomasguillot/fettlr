@@ -8,6 +8,15 @@ pub trait GitProbing: Send + Sync {
     fn behind_count(&self, repo: &Path) -> Result<u32, CoreError>;
     fn pull_ff_only(&self, repo: &Path) -> Result<(), CoreError>;
 
+    /// The 40-hex commit the remote's `reference` (or `HEAD`) points at, from `git ls-remote`
+    /// alone: nothing is fetched. `workdir` is only the directory the command runs in.
+    fn remote_head(
+        &self,
+        url: &str,
+        reference: Option<&str>,
+        workdir: &Path,
+    ) -> Result<String, CoreError>;
+
     /// Returns the 40-hex commit the remote's `reference` (or `HEAD`) points at, with that
     /// commit's trees present in the blob-less bare `cache_repo`.
     fn fetch_source(
@@ -70,6 +79,12 @@ impl GitProbe {
         Ok(())
     }
 
+    fn list_remote(&self, remote: &str, target: &str, workdir: &Path) -> Result<String, CoreError> {
+        let args = ["ls-remote", "--end-of-options", remote, target];
+        let listing = self.run_ok(&args, workdir)?;
+        first_commit(&listing.stdout).ok_or_else(|| failed(&args, listing.stdout.clone()))
+    }
+
     fn run_ok(&self, args: &[&str], repo: &Path) -> Result<CliOutput, CoreError> {
         let output = self.run(args, repo)?;
         if output.exit_code != 0 {
@@ -97,6 +112,31 @@ fn failed(args: &[&str], stderr: String) -> CoreError {
 
 fn is_commit_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn first_commit(listing: &str) -> Option<String> {
+    listing
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .filter(|sha| matches!(sha.len(), 40 | 64) && sha.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_string)
+}
+
+fn checked_remote(url: &str, reference: Option<&str>) -> Result<(), CoreError> {
+    if !(url.starts_with("https://") || url.starts_with("file://")) {
+        return Err(CoreError::Cli {
+            command: "fettlr: unsupported source url".into(),
+            stderr: "refusing a source url that is not https:// or file://".into(),
+        });
+    }
+    if reference.is_some_and(|reference| reference.starts_with('-')) {
+        return Err(CoreError::Cli {
+            command: "fettlr: invalid reference".into(),
+            stderr: "refusing a reference that starts with a dash".into(),
+        });
+    }
+    Ok(())
 }
 
 const BEHIND_COUNT: &[&str] = &["rev-list", "--count", "HEAD..@{upstream}"];
@@ -127,24 +167,40 @@ impl GitProbing for GitProbe {
         Ok(())
     }
 
+    fn remote_head(
+        &self,
+        url: &str,
+        reference: Option<&str>,
+        workdir: &Path,
+    ) -> Result<String, CoreError> {
+        checked_remote(url, reference)?;
+        let target = reference.unwrap_or("HEAD");
+        let no_repo = format!("--git-dir={}", workdir.join("fettlr-no-git-dir").display());
+        let shown = ["ls-remote", "--end-of-options", "<url>", target];
+        let listing = self
+            .run(
+                &[&no_repo, "ls-remote", "--end-of-options", url, target],
+                workdir,
+            )
+            .map_err(|error| match error {
+                CoreError::Timeout { .. } => CoreError::Timeout {
+                    command: format!("git {}", shown.join(" ")),
+                },
+                other => other,
+            })?;
+        if listing.exit_code != 0 {
+            return Err(failed(&shown, listing.stderr));
+        }
+        first_commit(&listing.stdout).ok_or_else(|| failed(&shown, listing.stdout.clone()))
+    }
+
     fn fetch_source(
         &self,
         url: &str,
         reference: Option<&str>,
         cache_repo: &Path,
     ) -> Result<String, CoreError> {
-        if !(url.starts_with("https://") || url.starts_with("file://")) {
-            return Err(CoreError::Cli {
-                command: "fettlr: unsupported source url".into(),
-                stderr: "refusing a source url that is not https:// or file://".into(),
-            });
-        }
-        if reference.is_some_and(|reference| reference.starts_with('-')) {
-            return Err(CoreError::Cli {
-                command: "fettlr: invalid reference".into(),
-                stderr: "refusing a reference that starts with a dash".into(),
-            });
-        }
+        checked_remote(url, reference)?;
         std::fs::create_dir_all(cache_repo)?;
         if !cache_repo.join("HEAD").exists() {
             self.run_ok(&["init", "--quiet", "--bare", "."], cache_repo)?;
@@ -157,16 +213,7 @@ impl GitProbing for GitProbe {
         )?;
 
         let target = reference.unwrap_or("HEAD");
-        let listing_args = ["ls-remote", "--end-of-options", "origin", target];
-        let listing = self.run_ok(&listing_args, cache_repo)?;
-        let commit = listing
-            .stdout
-            .lines()
-            .next()
-            .and_then(|line| line.split_whitespace().next())
-            .filter(|sha| is_commit_sha(sha))
-            .ok_or_else(|| failed(&listing_args, listing.stdout.clone()))?
-            .to_string();
+        let commit = self.list_remote("origin", target, cache_repo)?;
 
         let fetched = self.run(
             &["rev-parse", "--verify", "--quiet", "FETCH_HEAD"],

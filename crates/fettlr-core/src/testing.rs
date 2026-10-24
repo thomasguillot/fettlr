@@ -276,6 +276,11 @@ impl FakeGitProbe {
         }
     }
 
+    pub fn with_counts_for(mut self, repo: impl Into<String>, count: u32) -> Self {
+        self.counts.insert(repo.into(), count);
+        self
+    }
+
     pub fn with_unreachable_source(mut self, url: &'static str) -> Self {
         self.unreachable.insert(url.to_string());
         self
@@ -326,6 +331,21 @@ impl GitProbing for FakeGitProbe {
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
         Ok(())
+    }
+
+    fn remote_head(
+        &self,
+        url: &str,
+        _reference: Option<&str>,
+        _workdir: &Path,
+    ) -> Result<String, CoreError> {
+        if self.unreachable.contains(url) {
+            return Err(Self::unreachable_error());
+        }
+        self.sources
+            .get(url)
+            .map(|(commit, _)| commit.clone())
+            .ok_or_else(Self::unreachable_error)
     }
 
     fn fetch_source(

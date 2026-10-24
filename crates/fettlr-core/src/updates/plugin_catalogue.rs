@@ -6,6 +6,8 @@ use serde_json::Value;
 
 use crate::paths::Paths;
 
+use super::checker::read_gcs_sha;
+
 /// What the marketplaces on disk say is the current version of a plugin.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueVersion {
@@ -19,9 +21,15 @@ pub enum CatalogueVersion {
 #[derive(Clone, Debug, Default)]
 pub struct PluginCatalogue {
     entries: BTreeMap<String, CatalogueVersion>,
+    installed_commits: BTreeMap<String, String>,
 }
 
 impl PluginCatalogue {
+    /// The commit Claude Code recorded for an installed plugin, keyed like `PluginRecord::id`.
+    pub fn installed_commit(&self, record_id: &str) -> Option<&str> {
+        self.installed_commits.get(record_id).map(String::as_str)
+    }
+
     pub fn get(&self, plugin_id: &str) -> Option<&CatalogueVersion> {
         self.entries.get(plugin_id)
     }
@@ -39,6 +47,7 @@ impl FromIterator<(String, CatalogueVersion)> for PluginCatalogue {
     fn from_iter<I: IntoIterator<Item = (String, CatalogueVersion)>>(iter: I) -> Self {
         Self {
             entries: iter.into_iter().collect(),
+            installed_commits: BTreeMap::new(),
         }
     }
 }
@@ -103,6 +112,7 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             record.source.get("source").and_then(Value::as_str),
             Some("github" | "git")
         );
+        let downloaded_commit = if git_hosted { read_gcs_sha(&dir) } else { None };
         for raw in manifest.plugins {
             let entry = match serde_json::from_value::<MarketplaceEntry>(raw.clone()) {
                 Ok(entry) => entry,
@@ -119,10 +129,60 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             if entry.name.is_empty() || entries.contains_key(&id) {
                 continue;
             }
-            entries.insert(id, classify(&entry, &dir, git_hosted));
+            entries.insert(
+                id,
+                classify(&entry, &dir, git_hosted, downloaded_commit.as_deref()),
+            );
         }
     }
-    PluginCatalogue { entries }
+    PluginCatalogue {
+        entries,
+        installed_commits: read_installed_commits(paths),
+    }
+}
+
+#[derive(Deserialize)]
+struct InstalledPlugins {
+    #[serde(default)]
+    plugins: BTreeMap<String, Vec<Value>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledPlugin {
+    scope: String,
+    #[serde(default)]
+    project_path: Option<String>,
+    #[serde(default)]
+    git_commit_sha: Option<String>,
+}
+
+fn read_installed_commits(paths: &Paths) -> BTreeMap<String, String> {
+    let mut commits = BTreeMap::new();
+    if !paths.installed_plugins_json().exists() {
+        return commits;
+    }
+    let Some(installed) = read_json::<InstalledPlugins>(&paths.installed_plugins_json()) else {
+        return commits;
+    };
+    for (plugin_id, installs) in installed.plugins {
+        for raw in installs {
+            let Ok(install) = serde_json::from_value::<InstalledPlugin>(raw) else {
+                continue;
+            };
+            let Some(sha) = install.git_commit_sha.filter(|sha| is_full_sha(sha)) else {
+                continue;
+            };
+            let scope = match (install.scope.as_str(), install.project_path) {
+                ("user", _) => "user".to_string(),
+                ("project", Some(path)) => format!("project:{path}"),
+                ("local", Some(path)) => format!("local:{path}"),
+                _ => continue,
+            };
+            commits.insert(format!("{plugin_id}#{scope}"), sha.to_ascii_lowercase());
+        }
+    }
+    commits
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
@@ -150,6 +210,7 @@ fn classify(
     entry: &MarketplaceEntry,
     marketplace_dir: &Path,
     git_hosted: bool,
+    downloaded_commit: Option<&str>,
 ) -> CatalogueVersion {
     let entry_version = non_empty(entry.version.as_deref());
     match &entry.source {
@@ -171,9 +232,12 @@ fn classify(
                     }
                 })
                 .and_then(|manifest| non_empty(manifest.version.as_deref()));
-            manifest_version
-                .or(entry_version)
-                .map_or(CatalogueVersion::Untracked, CatalogueVersion::Version)
+            match manifest_version.or(entry_version) {
+                Some(version) => CatalogueVersion::Version(version),
+                None => downloaded_commit.map_or(CatalogueVersion::Untracked, |sha| {
+                    CatalogueVersion::Commit(sha.to_string())
+                }),
+            }
         }
         Value::Object(source) => {
             let kind = source.get("source").and_then(Value::as_str);

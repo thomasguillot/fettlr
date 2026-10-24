@@ -113,10 +113,11 @@ impl UpdateChecker {
 
         for record in marketplaces {
             let git = self.git.as_ref();
+            let cache = self.source_cache.as_deref();
             jobs.push(Job {
                 target: Target::Marketplace,
                 id: record.name.clone(),
-                compute: Box::new(move || marketplace_state(record, git)),
+                compute: Box::new(move || marketplace_state(record, git, cache)),
             });
         }
 
@@ -221,11 +222,57 @@ fn run_jobs<'a>(jobs: Vec<Job<'a>>) -> Vec<JobResult> {
     results.into_inner().expect("lock poisoned")
 }
 
-fn marketplace_state(record: &MarketplaceRecord, git: &dyn GitProbing) -> UpdateState {
+fn marketplace_state(
+    record: &MarketplaceRecord,
+    git: &dyn GitProbing,
+    source_cache: Option<&Path>,
+) -> UpdateState {
     if record.install_location.is_empty() || !matches!(record.source.as_str(), "github" | "git") {
         return UpdateState::Unknown;
     }
-    behind_state(git.behind_count(Path::new(&record.install_location)))
+    let dir = Path::new(&record.install_location);
+    if std::fs::symlink_metadata(dir.join(GCS_SHA_FILE)).is_ok() {
+        return downloaded_marketplace_state(record, dir, git, source_cache);
+    }
+    behind_state(git.behind_count(dir))
+}
+
+fn downloaded_marketplace_state(
+    record: &MarketplaceRecord,
+    dir: &Path,
+    git: &dyn GitProbing,
+    source_cache: Option<&Path>,
+) -> UpdateState {
+    let (Some(installed), "github", Some(repo)) =
+        (read_gcs_sha(dir), record.source.as_str(), &record.repo)
+    else {
+        return UpdateState::Unknown;
+    };
+    if !is_owner_and_name(repo) {
+        return UpdateState::Unknown;
+    }
+    let Some(workdir) = source_cache else {
+        return UpdateState::Unknown;
+    };
+    if std::fs::create_dir_all(workdir).is_err() {
+        return UpdateState::Unknown;
+    }
+    match git.remote_head(&format!("https://github.com/{repo}"), None, workdir) {
+        Ok(head) if head.eq_ignore_ascii_case(&installed) => UpdateState::UpToDate,
+        _ => UpdateState::Unknown,
+    }
+}
+
+fn is_owner_and_name(repo: &str) -> bool {
+    let part = |value: &str| {
+        !value.is_empty()
+            && value != "."
+            && value != ".."
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    matches!(repo.split_once('/'), Some((owner, name)) if part(owner) && part(name))
 }
 
 fn skill_state(
@@ -242,6 +289,33 @@ fn skill_state(
         },
         _ => UpdateState::Unknown,
     }
+}
+
+pub(crate) const GCS_SHA_FILE: &str = ".gcs-sha";
+
+/// The commit Claude Code records for a marketplace it downloaded instead of cloning. Only a
+/// small regular file counts: a link or special file in a downloaded folder is never followed.
+pub(crate) fn read_gcs_sha(dir: &Path) -> Option<String> {
+    use std::io::Read;
+
+    const MAX_BYTES: u64 = 128;
+    let path = dir.join(GCS_SHA_FILE);
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&path)
+        .ok()?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return None;
+    }
+    let raw = String::from_utf8(bytes).ok()?;
+    let sha = raw.trim();
+    (matches!(sha.len(), 40 | 64) && sha.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| sha.to_ascii_lowercase())
 }
 
 fn is_tree_sha(value: &str) -> bool {
@@ -350,17 +424,34 @@ fn plugin_state(plugin: &PluginRecord, catalogue: &PluginCatalogue) -> UpdateSta
     }
     match catalogue.get(&plugin.plugin_id) {
         Some(CatalogueVersion::Version(latest)) => version_state(&plugin.version, latest),
+        Some(CatalogueVersion::Commit(sha)) if !is_short_sha(&plugin.version) => {
+            match catalogue.installed_commit(&plugin.id()) {
+                Some(installed) => pinned_state(installed, sha),
+                None => UpdateState::Unknown,
+            }
+        }
         Some(CatalogueVersion::Commit(sha)) => commit_state(&plugin.version, sha),
         Some(CatalogueVersion::Untracked) | None => UpdateState::Unknown,
     }
 }
 
-fn commit_state(installed: &str, sha: &str) -> UpdateState {
-    let is_short_sha = installed.len() == 12
-        && installed
+fn is_short_sha(value: &str) -> bool {
+    value.len() == 12
+        && value
             .chars()
-            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
-    if !is_short_sha {
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+fn pinned_state(installed: &str, pinned: &str) -> UpdateState {
+    if installed.eq_ignore_ascii_case(pinned) {
+        UpdateState::UpToDate
+    } else {
+        UpdateState::Unknown
+    }
+}
+
+fn commit_state(installed: &str, sha: &str) -> UpdateState {
+    if !is_short_sha(installed) {
         return UpdateState::Unknown;
     }
     let sha = sha.to_ascii_lowercase();

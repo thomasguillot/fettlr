@@ -513,3 +513,126 @@ fn export_folder_treats_the_folder_literally() {
         None
     );
 }
+
+#[test]
+fn remote_head_lists_the_head_without_fetching_and_refuses_a_dash_reference() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+
+    let head = GitProbe
+        .remote_head(&fixture.url, None, workdir.path())
+        .expect("remote head");
+    assert_eq!(head, fixture.origin_rev("HEAD"));
+    assert!(!fixture.cache.exists());
+
+    match GitProbe.remote_head(&fixture.url, Some("--x"), workdir.path()) {
+        Err(CoreError::Cli { command, .. }) => assert_eq!(command, "fettlr: invalid reference"),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[test]
+fn remote_head_refuses_a_url_that_is_not_https_or_file() {
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+    for url in [
+        "ssh://example.com/x",
+        "ext::sh -c id",
+        "-uhttps://x",
+        "git@github.com:a/b.git",
+    ] {
+        match GitProbe.remote_head(url, None, workdir.path()) {
+            Err(CoreError::Cli { command, .. }) => {
+                assert_eq!(command, "fettlr: unsupported source url", "{url}")
+            }
+            other => panic!("unexpected result for {url}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_failed_remote_head_never_names_the_url_in_its_command() {
+    if !git_installed() {
+        return;
+    }
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+    let url = "file:///nonexistent/secret-repo";
+    match GitProbe.remote_head(url, None, workdir.path()) {
+        Err(CoreError::Cli { command, .. }) => {
+            assert!(!command.contains("secret-repo"), "{command}")
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[test]
+fn remote_head_ignores_a_repository_around_its_directory() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let outer = tempfile::TempDir::new().expect("create temp dir");
+    run(&["init", "--quiet"], outer.path());
+    run(
+        &[
+            "config",
+            "url.file:///nonexistent-redirect/.insteadOf",
+            "file:///",
+        ],
+        outer.path(),
+    );
+    let inner = outer.path().join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    let head = GitProbe
+        .remote_head(&fixture.url, None, &inner)
+        .expect("remote head");
+    assert_eq!(head, fixture.origin_rev("HEAD"));
+}
+
+#[test]
+fn remote_head_returns_a_64_hex_head_from_a_sha_256_repository() {
+    if !git_installed() {
+        return;
+    }
+    let root = tempfile::TempDir::new().expect("create temp dir");
+    let origin = root.path().join("origin");
+    std::fs::create_dir_all(&origin).unwrap();
+    run(
+        &[
+            "-c",
+            "init.defaultBranch=main",
+            "init",
+            "--quiet",
+            "--object-format=sha256",
+        ],
+        &origin,
+    );
+    std::fs::write(origin.join("a.txt"), "a").unwrap();
+    run(&["add", "."], &origin);
+    run(
+        &[
+            "-c",
+            "user.email=fettlr@example.test",
+            "-c",
+            "user.name=Fettlr",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "one",
+        ],
+        &origin,
+    );
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+    let head = GitProbe
+        .remote_head(
+            &format!("file://{}", origin.display()),
+            None,
+            workdir.path(),
+        )
+        .expect("remote head");
+    assert_eq!(head.len(), 64);
+}

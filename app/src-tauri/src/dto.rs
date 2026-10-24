@@ -1323,12 +1323,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_account_provenance_serialises_with_its_update_time() {
+    fn an_account_provenance_serializes_with_its_update_time() {
         let ui = UiProvenance::from(&Provenance::Account {
             updated_at: "2026-10-24T12:57:30.617177Z".to_string(),
         });
         assert_eq!(
-            serde_json::to_value(&ui).expect("serialize"),
+            serde_json::to_value(&ui).expect("serializes"),
             serde_json::json!({"kind": "account", "updatedAt": "2026-10-24T12:57:30.617177Z"})
         );
     }

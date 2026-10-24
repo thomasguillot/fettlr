@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 use zip::write::SimpleFileOptions;
@@ -7,6 +7,13 @@ use zip::{CompressionMethod, ZipWriter};
 
 use crate::cli_records::CoreError;
 use crate::skills::skill_files;
+
+fn open_without_following(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+}
 
 /// Zips the files `skill_files` selects under `root_name/` and replaces `destination` with the
 /// result. Dotfiles and symlinks never enter the archive.
@@ -33,12 +40,12 @@ pub fn write_skill_zip(
             .add_directory(format!("{root_name}/"), base)
             .map_err(|error| unpackageable(error.to_string()))?;
         for (key, path) in &set.files {
-            let executable = std::fs::metadata(path)?.permissions().mode() & 0o111 != 0;
+            let mut file = open_without_following(path)?;
+            let executable = file.metadata()?.permissions().mode() & 0o111 != 0;
             let options = base.unix_permissions(if executable { 0o755 } else { 0o644 });
             writer
                 .start_file(format!("{root_name}/{key}"), options)
                 .map_err(|error| unpackageable(error.to_string()))?;
-            let mut file = std::fs::File::open(path)?;
             std::io::copy(&mut file, &mut writer)?;
         }
         writer
@@ -50,4 +57,21 @@ pub fn write_skill_zip(
         .persist(destination)
         .map_err(|error| CoreError::from(error.error))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_without_following;
+
+    #[test]
+    fn a_symlink_is_refused_by_the_open_helper() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let real = dir.path().join("real.md");
+        std::fs::write(&real, "x").expect("write");
+        let link = dir.path().join("link.md");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        assert!(open_without_following(&real).is_ok());
+        assert!(open_without_following(&link).is_err());
+    }
 }

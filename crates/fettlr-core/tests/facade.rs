@@ -561,6 +561,47 @@ mod mutations {
     }
 
     #[test]
+    fn a_path_like_frontmatter_name_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "../escape");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("my-skill/"))
+        );
+    }
+
+    #[test]
+    fn a_whitespace_only_frontmatter_name_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, skill) = plugin_skill_snapshot(&tree, "my-skill", "\"   \"");
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+        assert!(
+            zip_entries(&path)
+                .iter()
+                .all(|name| name.starts_with("my-skill/"))
+        );
+    }
+
+    #[test]
+    fn a_frontmatter_name_with_a_newline_falls_back_to_the_folder_name() {
+        let tree = TempTree::new();
+        let (fettlr, mut skill) = plugin_skill_snapshot(&tree, "my-skill", "x");
+        skill.title = Some("a\nb".into());
+
+        let path = fettlr.package_skill(&skill).expect("package");
+
+        assert_eq!(path, tree.paths.skill_packages_dir().join("my-skill.zip"));
+    }
+
+    #[test]
     fn an_account_skill_cannot_be_packaged() {
         let tree = TempTree::new();
         let (_, runner) = account_and_plugin_copy(&tree);

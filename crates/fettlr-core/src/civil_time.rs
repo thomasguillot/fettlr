@@ -34,7 +34,7 @@ pub(crate) fn parse_rfc3339(text: &str) -> Option<i64> {
     separator(16, b':')?;
     let second = number(17, 19)?;
     if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
+        || !(1..=days_in_month(year, month)).contains(&day)
         || hour > 23
         || minute > 59
         || second > 60
@@ -56,13 +56,27 @@ pub(crate) fn parse_rfc3339(text: &str) -> Option<i64> {
         b'Z' if at + 1 == bytes.len() => 0,
         sign @ (b'+' | b'-') if at + 6 == bytes.len() => {
             separator(at + 3, b':')?;
-            let magnitude = number(at + 1, at + 3)? * 3600 + number(at + 4, at + 6)? * 60;
+            let offset_hour = number(at + 1, at + 3)?;
+            let offset_minute = number(at + 4, at + 6)?;
+            if offset_hour > 23 || offset_minute > 59 {
+                return None;
+            }
+            let magnitude = offset_hour * 3600 + offset_minute * 60;
             if *sign == b'+' { magnitude } else { -magnitude }
         }
         _ => return None,
     };
     let days = days_from_civil(year, month, day);
     Some(days * 86_400 + hour * 3600 + minute * 60 + second - offset)
+}
+
+fn days_in_month(year: i64, month: i64) -> i64 {
+    match month {
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 /// Howard Hinnant's `days_from_civil`, the inverse of `civil_from_days`.
@@ -158,5 +172,14 @@ mod tests {
     fn parse_rfc3339_refuses_garbage() {
         assert_eq!(parse_rfc3339("yesterday"), None);
         assert_eq!(parse_rfc3339("2026-10-24"), None);
+        assert_eq!(parse_rfc3339("2026-02-30T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339("2026-02-29T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339("2026-10-24T12:00:00+25:00"), None);
+        assert_eq!(parse_rfc3339("2026-10-24T12:00:00+01:60"), None);
+    }
+
+    #[test]
+    fn parse_rfc3339_accepts_a_leap_day() {
+        assert_eq!(parse_rfc3339("2024-02-29T00:00:00Z"), Some(1_709_164_800));
     }
 }

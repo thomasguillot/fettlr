@@ -297,7 +297,7 @@ fn a_readable_bucket_beats_a_malformed_one_that_sorts_first() {
     let tree = TempTree::new();
     let bad = tree.write_account_manifest("a", 9, json!([]));
     tree.write("{", &bad.join("manifest.json"));
-    tree.write_account_manifest("b", 1, json!([plugin_entry("good")]));
+    tree.write_account_manifest("b", 0, json!([plugin_entry("good")]));
     tree.make_account_skill("b", "good", &TempTree::skill_markdown("good", "x"));
 
     let config = discover(&tree.paths).expect("discover");
@@ -314,15 +314,13 @@ fn a_readable_bucket_beats_a_malformed_one_that_sorts_first() {
 #[test]
 fn a_fractional_last_updated_still_ranks() {
     let tree = TempTree::new();
-    let older = tree.write_account_manifest("a", 0, json!([plugin_entry("old")]));
+    tree.write_account_manifest("a", 0, json!([plugin_entry("old")]));
+    let newer = tree.write_account_manifest("b", 0, json!([]));
     tree.write(
         &serde_json::to_string(&json!({"lastUpdated": 2.5, "skills": [plugin_entry("new")]}))
             .unwrap(),
-        &tree
-            .write_account_manifest("b", 0, json!([]))
-            .join("manifest.json"),
+        &newer.join("manifest.json"),
     );
-    let _ = older;
     tree.make_account_skill("a", "old", &TempTree::skill_markdown("old", "x"));
     tree.make_account_skill("b", "new", &TempTree::skill_markdown("new", "x"));
 
@@ -533,6 +531,7 @@ fn the_same_content_is_never_behind() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "body"), UPDATED);
     let c = plugin_copy(&tree, &markdown(None, true, "body"));
+    set_mtime(&c.path, UPLOADED as u64 + 86_400);
 
     assert!(judge(&[&a, &c]).is_empty());
 }
@@ -607,6 +606,80 @@ fn a_local_edit_within_five_minutes_of_the_upload_is_not_trusted() {
     set_mtime(&c.path, UPLOADED as u64 + 299);
 
     assert!(judge(&[&a, &c]).is_empty());
+}
+
+#[test]
+fn the_edit_window_is_strictly_longer_than_five_minutes() {
+    for (offset, expected_behind) in [(300, false), (301, true)] {
+        let tree = TempTree::new();
+        let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+        let c = user_copy(&tree, &markdown(None, true, "new"));
+        set_mtime(&c.path, UPLOADED as u64 + offset);
+
+        assert_eq!(
+            !judge(&[&a, &c]).is_empty(),
+            expected_behind,
+            "{offset} seconds after the upload"
+        );
+    }
+}
+
+#[test]
+fn the_newer_of_two_unversioned_copies_is_chosen() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    let user = user_copy(&tree, &markdown(None, true, "u"));
+    set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
+    set_mtime(&user.path, UPLOADED as u64 + 2_000);
+
+    assert_eq!(judge(&[&a, &plugin, &user]), behind(&a, &user, None));
+}
+
+#[test]
+fn equally_new_unversioned_copies_go_to_the_smaller_id() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    let user = user_copy(&tree, &markdown(None, true, "u"));
+    set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
+    set_mtime(&user.path, UPLOADED as u64 + 1_000);
+
+    assert!(plugin.id < user.id);
+    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &plugin, None));
+}
+
+#[test]
+fn a_copy_whose_frontmatter_name_differs_is_not_a_candidate() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let mut renamed = plugin_copy(&tree, &markdown(Some("9.0.0"), true, "new"));
+    renamed.title = Some("impeccable-pro".into());
+
+    assert!(judge(&[&a, &renamed]).is_empty());
+}
+
+#[test]
+fn a_copy_in_another_folder_with_the_same_frontmatter_name_is_a_candidate() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), UPDATED);
+    let mut other = plugin_copy(&tree, &markdown(Some("4.7.1"), true, "new"));
+    other.name = "x".into();
+    other.title = Some("impeccable".into());
+
+    assert_eq!(judge(&[&a, &other]), behind(&a, &other, Some("4.7.1")));
+}
+
+#[test]
+fn a_changed_description_makes_the_copy_differ() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "body"), UPDATED);
+    let c = plugin_copy(
+        &tree,
+        &markdown(Some("4.7.1"), true, "body").replace("description: d", "description: changed"),
+    );
+
+    assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("4.7.1")));
 }
 
 #[test]

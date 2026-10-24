@@ -359,7 +359,9 @@ impl Fettlr {
         }
         let root_name = match skill.title.as_deref() {
             Some(title)
-                if !title.is_empty() && !title.contains(['/', '\\']) && !title.starts_with('.') =>
+                if !title.trim().is_empty()
+                    && !title.contains(['/', '\\', '\n'])
+                    && !title.starts_with('.') =>
             {
                 title
             }

@@ -83,8 +83,12 @@ fn is_candidate(candidate: &Skill, account: &Skill) -> bool {
     if matches!(candidate.provenance, Provenance::Account { .. }) {
         return false;
     }
-    let same_name =
-        candidate.name == account.name || candidate.title.as_deref() == Some(account.name.as_str());
+    let effective_name = candidate
+        .title
+        .as_deref()
+        .filter(|title| !title.is_empty())
+        .unwrap_or(candidate.name.as_str());
+    let same_name = effective_name == account.name;
     let reachable =
         matches!(candidate.provenance, Provenance::Plugin { .. }) || candidate.scope == Scope::User;
     same_name && reachable
@@ -114,7 +118,10 @@ fn same_content(a: &SkillCopy, b: &SkillCopy) -> bool {
                 std::fs::read_to_string(path),
                 std::fs::read_to_string(other),
             ) {
-                (Ok(left), Ok(right)) => markdown_body(&left) == markdown_body(&right),
+                (Ok(left), Ok(right)) => {
+                    markdown_body(&left) == markdown_body(&right)
+                        && frontmatter_without_version(&left) == frontmatter_without_version(&right)
+                }
                 _ => false,
             }
         } else {
@@ -124,6 +131,12 @@ fn same_content(a: &SkillCopy, b: &SkillCopy) -> bool {
             }
         }
     })
+}
+
+fn frontmatter_without_version(markdown: &str) -> BTreeMap<String, String> {
+    let mut fields = parse_frontmatter(markdown);
+    fields.remove("version");
+    fields
 }
 
 fn is_newer(account: &SkillCopy, local: &SkillCopy, uploaded: Option<i64>) -> bool {

@@ -91,6 +91,29 @@ fn dotfiles_and_symlinks_stay_out_of_the_zip() {
 }
 
 #[test]
+fn a_symlinked_directory_and_a_nested_dotfile_stay_out_of_the_zip() {
+    let dir = TempDir::new().expect("tempdir");
+    let source = demo_skill(&dir);
+    let outside = dir.path().join("outside");
+    write(&outside.join("leaked.md"), "private");
+    symlink(&outside, source.join("docs")).expect("symlink");
+    write(&source.join("reference/.secret"), "SECRET=1");
+    let destination = dir.path().join("demo.zip");
+
+    write_skill_zip(&source, "demo", &destination).expect("zip");
+
+    assert_eq!(
+        entry_names(&destination),
+        vec![
+            "demo/",
+            "demo/SKILL.md",
+            "demo/reference/a.md",
+            "demo/scripts/run.sh"
+        ]
+    );
+}
+
+#[test]
 fn a_folder_without_skill_md_is_refused() {
     let dir = TempDir::new().expect("tempdir");
     let source = dir.path().join("demo");

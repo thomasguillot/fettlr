@@ -967,8 +967,16 @@ fn a_malformed_sha_file_leaves_the_marketplace_unknown() {
 #[test]
 fn an_unreachable_remote_leaves_a_downloaded_marketplace_unknown() {
     let tree = TempTree::new();
-    let record = downloaded_marketplace(&tree, Some(OLD_SHA));
-    assert_eq!(state_of(&default_checker(), record), UpdateState::Unknown);
+    let record = downloaded_marketplace(&tree, Some(NEW_SHA));
+    let git = FakeGitProbe::with_sources([(
+        "https://github.com/acme/official",
+        NEW_SHA,
+        BTreeMap::new(),
+    )])
+    .with_unreachable_source("https://github.com/acme/official");
+    let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
+        .with_source_cache(tree.root().join("cache"));
+    assert_eq!(state_of(&checker, record), UpdateState::Unknown);
 }
 
 #[test]

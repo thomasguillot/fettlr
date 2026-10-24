@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -6,7 +7,7 @@ use serde_json::Value;
 use crate::discovery::{non_empty, skill_frontmatter_fields};
 use crate::models::Scope;
 use crate::paths::Paths;
-use crate::skills::{Provenance, Skill};
+use crate::skills::{Provenance, Skill, is_real_dir};
 
 pub(crate) fn account_skills(paths: &Paths, warnings: &mut Vec<String>) -> Vec<Skill> {
     if sync_is_off(&paths.settings_json()) {
@@ -15,18 +16,21 @@ pub(crate) fn account_skills(paths: &Paths, warnings: &mut Vec<String>) -> Vec<S
     let Some(bucket) = newest_bucket(&paths.account_skills_dir()) else {
         return Vec::new();
     };
-    let manifest_path = bucket.join("manifest.json");
-    let Some(entries) = read_entries(&manifest_path) else {
+    let Some(entries) = bucket
+        .manifest
+        .as_ref()
+        .and_then(|manifest| manifest.get("skills")?.as_array())
+    else {
         warnings.push(format!(
             "Could not read the Claude account skills listed in {}.",
-            manifest_path.display()
+            bucket.manifest_path.display()
         ));
         return Vec::new();
     };
 
     let mut seen = HashSet::new();
     let mut skills = Vec::new();
-    for entry in &entries {
+    for entry in entries {
         let Some(name) = string_field(entry, "name") else {
             continue;
         };
@@ -36,8 +40,8 @@ pub(crate) fn account_skills(paths: &Paths, warnings: &mut Vec<String>) -> Vec<S
         if !is_plain_folder_name(name) || is_anthropic(entry) || !seen.insert(name.to_string()) {
             continue;
         }
-        let folder = bucket.join(name);
-        if !folder.join("SKILL.md").is_file() {
+        let folder = bucket.path.join(name);
+        if !is_real_dir(&folder) || !is_real_file(&folder.join("SKILL.md")) {
             continue;
         }
         let fields = skill_frontmatter_fields(&folder, warnings);
@@ -57,6 +61,25 @@ pub(crate) fn account_skills(paths: &Paths, warnings: &mut Vec<String>) -> Vec<S
     skills
 }
 
+struct Bucket {
+    name: String,
+    path: PathBuf,
+    manifest_path: PathBuf,
+    manifest: Option<Value>,
+}
+
+impl Bucket {
+    fn rank(&self) -> Option<f64> {
+        let manifest = self.manifest.as_ref()?;
+        Some(
+            manifest
+                .get("lastUpdated")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+        )
+    }
+}
+
 fn sync_is_off(settings: &Path) -> bool {
     std::fs::read_to_string(settings)
         .ok()
@@ -65,35 +88,43 @@ fn sync_is_off(settings: &Path) -> bool {
         == Some(false)
 }
 
-fn newest_bucket(root: &Path) -> Option<PathBuf> {
-    let mut buckets: Vec<(u64, String, PathBuf)> = std::fs::read_dir(root)
+fn newest_bucket(root: &Path) -> Option<Bucket> {
+    let mut buckets: Vec<Bucket> = std::fs::read_dir(root)
         .ok()?
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let name = entry.file_name().to_str()?.to_string();
-            if name.starts_with('.') || !entry.path().is_dir() {
+            let path = entry.path();
+            if name.starts_with('.') || !is_real_dir(&path) {
                 return None;
             }
-            let manifest = entry.path().join("manifest.json");
-            if !manifest.is_file() {
+            let manifest_path = path.join("manifest.json");
+            if !is_real_file(&manifest_path) {
                 return None;
             }
-            let updated = std::fs::read_to_string(&manifest)
+            let manifest = std::fs::read_to_string(&manifest_path)
                 .ok()
                 .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                .and_then(|value| value.get("lastUpdated").and_then(Value::as_u64))
-                .unwrap_or(0);
-            Some((updated, name, entry.path()))
+                .filter(Value::is_object);
+            Some(Bucket {
+                name,
+                path,
+                manifest_path,
+                manifest,
+            })
         })
         .collect();
-    buckets.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    buckets.into_iter().next().map(|(_, _, path)| path)
+    buckets.sort_by(|a, b| {
+        b.rank()
+            .partial_cmp(&a.rank())
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    buckets.into_iter().next()
 }
 
-fn read_entries(manifest: &Path) -> Option<Vec<Value>> {
-    let text = std::fs::read_to_string(manifest).ok()?;
-    let value = serde_json::from_str::<Value>(&text).ok()?;
-    value.as_object()?.get("skills")?.as_array().cloned()
+fn is_real_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
 fn string_field<'a>(entry: &'a Value, key: &str) -> Option<&'a str> {

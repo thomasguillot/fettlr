@@ -351,6 +351,9 @@ impl Fettlr {
         match &skill.provenance {
             Provenance::GitClone => self.git.pull_ff_only(&skill.path),
             Provenance::SkillsCli(_) => self.update_skills_cli_skill(&skill.name),
+            Provenance::Account { .. } => Err(CoreError::SkillManagedByAccount {
+                name: skill.name.clone(),
+            }),
             _ => Err(CoreError::NotAGitClone {
                 name: skill.name.clone(),
             }),

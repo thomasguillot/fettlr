@@ -1129,6 +1129,35 @@ mod subagents {
     }
 
     #[test]
+    fn an_account_skill_cannot_be_pulled() {
+        let tree = TempTree::new();
+        tree.write_claude_json(json!({ "projects": {} }));
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let fettlr = fettlr_with(scripted_runner(), &tree);
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("listed")
+            .clone();
+
+        assert!(matches!(
+            fettlr.pull_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+    }
+
+    #[test]
     fn a_plugin_owned_subagent_cannot_be_parked_or_deleted() {
         let tree = TempTree::new();
         tree.write_claude_json(json!({ "projects": {} }));

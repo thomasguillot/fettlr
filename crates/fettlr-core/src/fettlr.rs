@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -11,12 +11,16 @@ use crate::mcp::{McpOrigin, McpServer, McpStore};
 use crate::models::{Scope, UpdateState};
 use crate::paths::Paths;
 use crate::skills::{
-    ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SystemClock,
+    ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
+    read_skills_lock, record_skill_update, replace_skill_folder,
 };
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
 use crate::trashing::Trashing;
-use crate::updates::{GitProbing, RegistryClient, UpdateChecker, read_plugin_catalogue};
+use crate::updates::{
+    GitProbing, RegistryClient, UpdateChecker, checkable_source_url, read_plugin_catalogue,
+    skill_source_repo,
+};
 
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,12 +33,14 @@ pub struct Fettlr {
     paths: Paths,
     cli: Arc<ClaudeCli>,
     git: Arc<dyn GitProbing>,
+    trasher: Arc<dyn Trashing>,
     mcp_store: McpStore,
     skill_store: SkillStore,
     subagent_store: SkillStore,
     update_checker: UpdateChecker,
     snapshot: Mutex<Snapshot>,
     refresh_lock: Mutex<()>,
+    skills_cli_update_lock: Mutex<()>,
 }
 
 impl Fettlr {
@@ -48,20 +54,26 @@ impl Fettlr {
         let cli = Arc::new(ClaudeCli::new(runner, &paths));
         let mcp_store = McpStore::new(&paths, cli.clone());
         let skill_store = SkillStore::new(&paths, trasher.clone());
-        let subagent_store =
-            SkillStore::for_kind(ParkKind::Subagent, &paths, trasher, Arc::new(SystemClock));
+        let subagent_store = SkillStore::for_kind(
+            ParkKind::Subagent,
+            &paths,
+            trasher.clone(),
+            Arc::new(SystemClock),
+        );
         let update_checker = UpdateChecker::new(git.clone(), registry)
             .with_source_cache(paths.skill_sources_cache());
         Self {
             paths,
             cli,
             git,
+            trasher,
             mcp_store,
             skill_store,
             subagent_store,
             update_checker,
             snapshot: Mutex::new(Snapshot::default()),
             refresh_lock: Mutex::new(()),
+            skills_cli_update_lock: Mutex::new(()),
         }
     }
 
@@ -316,17 +328,113 @@ impl Fettlr {
         self.mutate(|| self.subagent_store.delete_parked(parked))
     }
 
-    /// Fast-forward only, matching `GitProbing::pull_ff_only`: a skill folder carrying local
-    /// commits is left alone rather than merged.
+    /// Updates one skill from where it came from. A git clone is pulled fast-forward only, matching
+    /// `GitProbing::pull_ff_only`, so a folder carrying local commits is left alone rather than
+    /// merged. A skill installed by the skills CLI has its folder replaced from its source and the
+    /// new folder hash recorded in the CLI's lock.
     pub fn pull_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
-        self.mutate(|| {
-            if skill.provenance != Provenance::GitClone {
-                return Err(CoreError::NotAGitClone {
-                    name: skill.name.clone(),
-                });
+        self.mutate(|| self.update_skill(skill))
+    }
+
+    fn update_skill(&self, skill: &Skill) -> Result<(), CoreError> {
+        match &skill.provenance {
+            Provenance::GitClone => self.git.pull_ff_only(&skill.path),
+            Provenance::SkillsCli(_) => self.update_skills_cli_skill(&skill.name),
+            _ => Err(CoreError::NotAGitClone {
+                name: skill.name.clone(),
+            }),
+        }
+    }
+
+    /// Works from the lock as it reads now, not from the origin the caller holds, and on the
+    /// literal canonical folder in the skills CLI's own directory, never on the link Claude Code
+    /// reads through.
+    fn update_skills_cli_skill(&self, name: &str) -> Result<(), CoreError> {
+        let _serialized = self
+            .skills_cli_update_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let unsupported = || CoreError::UnsupportedSkillSource {
+            name: name.to_string(),
+        };
+        let mut parts = Path::new(name).components();
+        if !matches!(
+            (parts.next(), parts.next()),
+            (Some(Component::Normal(_)), None)
+        ) {
+            return Err(unsupported());
+        }
+
+        let target = self.paths.skills_cli_skills_dir().join(name);
+        let metadata = std::fs::symlink_metadata(&target).map_err(|_| CoreError::MissingSkill {
+            path: target.display().to_string(),
+        })?;
+        if !metadata.is_dir() {
+            return Err(unsupported());
+        }
+
+        let lock = self.paths.skills_cli_lock();
+        let SkillsLock::Read(entries) = read_skills_lock(&lock)? else {
+            return Err(unsupported());
+        };
+        let origin = entries
+            .get(name)
+            .ok_or_else(|| CoreError::SkillsLockChanged {
+                path: lock.display().to_string(),
+            })?;
+        let url = checkable_source_url(origin).ok_or_else(unsupported)?;
+        let cache_repo =
+            skill_source_repo(&self.paths.skill_sources_cache(), origin).ok_or_else(unsupported)?;
+
+        let commit = self
+            .git
+            .fetch_source(url, origin.reference.as_deref(), &cache_repo)?;
+        let tree = self
+            .git
+            .tree_sha(&cache_repo, &commit, &origin.folder)?
+            .ok_or_else(|| CoreError::SkillGoneUpstream {
+                name: name.to_string(),
+                source_name: origin.source.clone(),
+            })?;
+
+        if !tree.eq_ignore_ascii_case(&origin.folder_hash) {
+            self.swap_in_source_folder(name, &cache_repo, &commit, &origin.folder, &target)?;
+        }
+        record_skill_update(&lock, name, &tree, &now_rfc3339())
+    }
+
+    fn swap_in_source_folder(
+        &self,
+        name: &str,
+        cache_repo: &Path,
+        commit: &str,
+        folder: &str,
+        target: &Path,
+    ) -> Result<(), CoreError> {
+        let cli_dir = self.paths.skills_cli_dir();
+        let staging = cli_dir.join(".fettlr-staging");
+        remove_if_present(&staging)?;
+        std::fs::create_dir_all(&staging)?;
+
+        let swapped = (|| {
+            self.git
+                .export_folder(cache_repo, commit, folder, &staging)?;
+            let staged = if folder.is_empty() {
+                staging.clone()
+            } else {
+                staging.join(folder)
+            };
+            let set_aside = cli_dir.join(format!(".fettlr-replaced-{name}"));
+            if std::fs::symlink_metadata(&set_aside).is_ok() {
+                self.trasher.trash(&set_aside)?;
             }
-            self.git.pull_ff_only(&skill.path)
-        })
+            replace_skill_folder(&staged, target, &set_aside, self.trasher.as_ref())
+        })();
+
+        if let Err(error) = remove_if_present(&staging) {
+            log::warn!("could not clear {}: {error}", staging.display());
+        }
+        swapped
     }
 
     /// The CLI's own description of one installed plugin.
@@ -407,7 +515,7 @@ impl Fettlr {
         self.mutate(|| self.mcp_store.set_enabled(server, enabled))
     }
 
-    /// Marketplaces, then plugins, then git-cloned skills, in that order and one at a time. MCP
+    /// Marketplaces, then plugins, then updatable skills, in that order and one at a time. MCP
     /// servers are never included: Claude Code has no update verb for them, only a config repin
     /// (`edit_mcp_server`). A failed item is recorded in the returned snapshot's `update_failures`
     /// and the run continues; the state is re-read once at the end, not after every item.
@@ -427,7 +535,7 @@ impl Fettlr {
                 StaleItem::Plugin {
                     plugin_id, scope, ..
                 } => self.cli.update_plugin(plugin_id, scope),
-                StaleItem::Skill { path, .. } => self.git.pull_ff_only(path),
+                StaleItem::Skill { skill, .. } => self.update_skill(skill),
             };
             let stage = if outcome.is_ok() {
                 UpdateStage::Updated
@@ -497,8 +605,7 @@ enum StaleItem {
     },
     Skill {
         id: String,
-        path: PathBuf,
-        name: String,
+        skill: Box<Skill>,
     },
 }
 
@@ -529,7 +636,7 @@ impl StaleItem {
         match self {
             StaleItem::Marketplace { name } => name,
             StaleItem::Plugin { display_name, .. } => display_name,
-            StaleItem::Skill { name, .. } => name,
+            StaleItem::Skill { skill, .. } => &skill.name,
         }
     }
 
@@ -551,7 +658,8 @@ impl StaleItem {
 
 /// Everything the last update check called stale, in the order `update_all` works through it.
 /// Mirrors the Swift app's `UpdateItem.stale(...)` filtered by `isUpdatable` (marketplaces and
-/// plugins always qualify, a skill only if it is a git clone, MCP servers never).
+/// plugins always qualify, a skill only if it is a git clone or came from the skills CLI, MCP
+/// servers never).
 fn stale_items(snapshot: &Snapshot) -> Vec<StaleItem> {
     let mut items = Vec::new();
     let Some(report) = &snapshot.update_report else {
@@ -588,21 +696,31 @@ fn stale_items(snapshot: &Snapshot) -> Vec<StaleItem> {
     }
 
     for skill in &snapshot.skills {
-        if skill.provenance == Provenance::GitClone
-            && report
-                .skills
-                .get(&skill.id)
-                .is_some_and(UpdateState::is_stale)
+        if matches!(
+            skill.provenance,
+            Provenance::GitClone | Provenance::SkillsCli(_)
+        ) && report
+            .skills
+            .get(&skill.id)
+            .is_some_and(UpdateState::is_stale)
         {
             items.push(StaleItem::Skill {
                 id: skill.id.clone(),
-                path: skill.path.clone(),
-                name: skill.name.clone(),
+                skill: Box::new(skill.clone()),
             });
         }
     }
 
     items
+}
+
+fn remove_if_present(path: &Path) -> Result<(), CoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(std::fs::remove_dir_all(path)?),
+        Ok(_) => Ok(std::fs::remove_file(path)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn now_rfc3339() -> String {

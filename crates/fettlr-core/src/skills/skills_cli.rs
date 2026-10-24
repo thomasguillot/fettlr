@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::cli_records::CoreError;
 use crate::json_store::save_json_store;
+use crate::trashing::Trashing;
 
 /// Where the skills CLI recorded a skill coming from, decoded from `~/.agents/.skill-lock.json`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -107,4 +108,30 @@ pub fn record_skill_update(
     entry.insert("skillFolderHash".into(), folder_hash.into());
     entry.insert("updatedAt".into(), updated_at.into());
     save_json_store(path, &root)
+}
+
+/// Swaps `staged` in at `target` by two renames, keeping the old folder at `set_aside` until the
+/// new one is in place. A failed second rename moves the old folder back. The old copy is trashed
+/// last, and a failure to trash it is only logged: the update itself has already landed.
+pub fn replace_skill_folder(
+    staged: &Path,
+    target: &Path,
+    set_aside: &Path,
+    trasher: &dyn Trashing,
+) -> Result<(), CoreError> {
+    std::fs::rename(target, set_aside)?;
+    if let Err(error) = std::fs::rename(staged, target) {
+        if let Err(restore) = std::fs::rename(set_aside, target) {
+            log::warn!(
+                "could not move {} back to {}: {restore}",
+                set_aside.display(),
+                target.display()
+            );
+        }
+        return Err(error.into());
+    }
+    if let Err(error) = trasher.trash(set_aside) {
+        log::warn!("{error}");
+    }
+    Ok(())
 }

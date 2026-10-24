@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::panic::{self, AssertUnwindSafe};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -254,16 +254,9 @@ fn source_state(
     cache_root: &Path,
     heads: &SourceHeads,
 ) -> UpdateState {
-    let Some(url) = origin
-        .source_url
-        .as_deref()
-        .filter(|url| url.starts_with("https://"))
-    else {
+    let Some(url) = checkable_source_url(origin) else {
         return UpdateState::Unknown;
     };
-    if origin.source_type != "github" || !is_tree_sha(&origin.folder_hash) {
-        return UpdateState::Unknown;
-    }
 
     let Some(repo) = skill_source_repo(cache_root, origin) else {
         return UpdateState::Unknown;
@@ -290,6 +283,20 @@ fn source_state(
         Ok(Some(_)) => UpdateState::SourceChanged,
         Ok(None) | Err(_) => UpdateState::Unknown,
     }
+}
+
+/// The url to fetch for an origin Fettlr can both check and update, or `None` when it can do
+/// neither. The check and the update both ask this, so they never disagree about a skill.
+pub(crate) fn checkable_source_url(origin: &SkillsCliOrigin) -> Option<&str> {
+    let url = origin
+        .source_url
+        .as_deref()
+        .filter(|url| url.starts_with("https://"))?;
+    let folder_stays_inside = Path::new(&origin.folder)
+        .components()
+        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
+    (origin.source_type == "github" && is_tree_sha(&origin.folder_hash) && folder_stays_inside)
+        .then_some(url)
 }
 
 /// The cache repository for one `(source url, reference)` pair under `cache_root`, or `None` when

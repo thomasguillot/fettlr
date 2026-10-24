@@ -424,6 +424,10 @@ pub enum CoreError {
     RegistryMalformedResponse { package: String },
     #[error("the skill {name} was not cloned with git, so there is nothing to pull")]
     NotAGitClone { name: String },
+    #[error("the skill {name} came from a source Fettlr cannot update")]
+    UnsupportedSkillSource { name: String },
+    #[error("the folder for {name} no longer exists in {source_name}")]
+    SkillGoneUpstream { name: String, source_name: String },
     #[error(
         "the skill {name} belongs to the plugin {plugin_id}; change it from the plugin instead"
     )]

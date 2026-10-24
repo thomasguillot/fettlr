@@ -1,5 +1,7 @@
-use fettlr_core::testing::TempTree;
-use fettlr_core::{CoreError, SkillsLock, read_skills_lock, record_skill_update};
+use fettlr_core::testing::{FakeTrasher, TempTree};
+use fettlr_core::{
+    CoreError, SkillsLock, read_skills_lock, record_skill_update, replace_skill_folder,
+};
 use serde_json::{Value, json};
 
 const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -174,4 +176,43 @@ fn a_skills_cli_skill_is_linked_from_the_claude_skills_folder() {
         std::fs::canonicalize(&link).unwrap(),
         std::fs::canonicalize(tree.paths.skills_cli_skills_dir().join("animate")).unwrap()
     );
+}
+
+#[test]
+fn replacing_a_skill_folder_swaps_it_and_trashes_the_old_copy() {
+    let tree = TempTree::new();
+    let target = tree.root().join("skills").join("animate");
+    tree.write("old", &target.join("SKILL.md"));
+    let staged = tree.root().join("staging").join("animate");
+    tree.write("new", &staged.join("SKILL.md"));
+    let set_aside = tree.root().join(".replaced-animate");
+    let trasher = FakeTrasher::new();
+
+    replace_skill_folder(&staged, &target, &set_aside, &trasher).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+        "new"
+    );
+    assert!(!staged.exists());
+    assert_eq!(trasher.trashed(), vec![set_aside]);
+}
+
+#[test]
+fn a_failed_swap_puts_the_old_folder_back() {
+    let tree = TempTree::new();
+    let target = tree.root().join("skills").join("animate");
+    tree.write("old", &target.join("SKILL.md"));
+    let staged = tree.root().join("staging").join("missing");
+    let set_aside = tree.root().join(".replaced-animate");
+    let trasher = FakeTrasher::new();
+
+    assert!(replace_skill_folder(&staged, &target, &set_aside, &trasher).is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+        "old"
+    );
+    assert!(!set_aside.exists());
+    assert!(trasher.trashed().is_empty());
 }

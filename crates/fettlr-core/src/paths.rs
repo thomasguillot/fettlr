@@ -42,6 +42,10 @@ impl Paths {
         self.plugins_dir().join("marketplaces")
     }
 
+    pub fn known_marketplaces_json(&self) -> PathBuf {
+        self.plugins_dir().join("known_marketplaces.json")
+    }
+
     pub fn settings_json(&self) -> PathBuf {
         self.claude_dir.join("settings.json")
     }
@@ -89,6 +93,14 @@ mod tests {
         assert_eq!(
             fake_paths().marketplaces_dir(),
             PathBuf::from("/tmp/fake-home/.claude/plugins/marketplaces")
+        );
+    }
+
+    #[test]
+    fn known_marketplaces_json_hangs_off_plugins_dir() {
+        assert_eq!(
+            fake_paths().known_marketplaces_json(),
+            PathBuf::from("/tmp/fake-home/.claude/plugins/known_marketplaces.json")
         );
     }
 

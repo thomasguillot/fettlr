@@ -455,6 +455,60 @@ impl TempTree {
         self.plugin_install_dir(name).join("agents")
     }
 
+    pub fn write_marketplace(
+        &self,
+        name: &str,
+        source: serde_json::Value,
+        plugins: serde_json::Value,
+    ) -> PathBuf {
+        let dir = self.paths.marketplaces_dir().join(name);
+        let manifest = serde_json::json!({
+            "name": name,
+            "owner": {"name": "Test"},
+            "plugins": plugins,
+        });
+        self.write(
+            &serde_json::to_string_pretty(&manifest).expect("serialize json"),
+            &dir.join(".claude-plugin").join("marketplace.json"),
+        );
+        let known_path = self.paths.known_marketplaces_json();
+        let mut known: serde_json::Value = std::fs::read_to_string(&known_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        known[name] = serde_json::json!({
+            "source": source,
+            "installLocation": dir,
+            "lastUpdated": "2026-10-24T00:00:00.000Z",
+        });
+        self.write(
+            &serde_json::to_string_pretty(&known).expect("serialize json"),
+            &known_path,
+        );
+        dir
+    }
+
+    pub fn write_plugin_manifest(
+        &self,
+        marketplace_dir: &Path,
+        relative: &str,
+        version: Option<&str>,
+    ) -> PathBuf {
+        let plugin_dir = marketplace_dir.join(relative);
+        let name = Path::new(relative)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut manifest = serde_json::json!({ "name": name });
+        if let Some(version) = version {
+            manifest["version"] = serde_json::json!(version);
+        }
+        self.write(
+            &serde_json::to_string_pretty(&manifest).expect("serialize json"),
+            &plugin_dir.join(".claude-plugin").join("plugin.json"),
+        )
+    }
+
     pub fn make_skill_symlink(&self, name: &str, directory: &Path, target: &Path) -> PathBuf {
         self.make_directory(directory);
         let link = directory.join(name);

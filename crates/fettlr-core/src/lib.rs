@@ -40,8 +40,8 @@ pub use snapshot::Snapshot;
 pub use subagents::Subagent;
 pub use trashing::{SystemTrasher, Trashing};
 pub use updates::{
-    GitProbe, GitProbing, HttpRegistryClient, PackageRegistry, PackageSpec, RegistryClient,
-    StaleIds, UpdateChecker, UpdateReport,
+    CatalogueVersion, GitProbe, GitProbing, HttpRegistryClient, PackageRegistry, PackageSpec,
+    PluginCatalogue, RegistryClient, StaleIds, UpdateChecker, UpdateReport, read_plugin_catalogue,
 };
 pub use usage::{Usage, UsageIndex};
 pub use watcher::Watcher;

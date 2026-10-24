@@ -633,7 +633,7 @@ fn the_newer_of_two_unversioned_copies_is_chosen() {
     set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
     set_mtime(&user.path, UPLOADED as u64 + 2_000);
 
-    assert_eq!(judge(&[&a, &plugin, &user]), behind(&a, &user, None));
+    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &user, None));
 }
 
 #[test]
@@ -646,7 +646,7 @@ fn equally_new_unversioned_copies_go_to_the_smaller_id() {
     set_mtime(&user.path, UPLOADED as u64 + 1_000);
 
     assert!(plugin.id < user.id);
-    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &plugin, None));
+    assert_eq!(judge(&[&a, &plugin, &user]), behind(&a, &plugin, None));
 }
 
 #[test]
@@ -680,6 +680,18 @@ fn a_changed_description_makes_the_copy_differ() {
     );
 
     assert_eq!(judge(&[&a, &c]), behind(&a, &c, Some("4.7.1")));
+}
+
+#[test]
+fn a_flush_list_with_a_colon_in_an_item_does_not_make_a_copy_differ() {
+    let tree = TempTree::new();
+    let flush =
+        "---\nname: impeccable\ndescription: d\nallowed-tools:\n- Bash(git add:*)\n---\n\nbody\n";
+    let indented = "---\nname: impeccable\ndescription: d\nversion: 4.7.1\nallowed-tools:\n  - Bash(git add:*)\n---\n\nbody\n";
+    let a = account(&tree, flush, UPDATED);
+    let c = plugin_copy(&tree, indented);
+
+    assert!(judge(&[&a, &c]).is_empty());
 }
 
 #[test]

@@ -47,7 +47,7 @@ pub fn parse_frontmatter(markdown: &str) -> BTreeMap<String, String> {
         if trimmed.is_empty() {
             continue;
         }
-        if is_indented(line) {
+        if is_indented(line) || trimmed.starts_with("- ") {
             if let Some((key, style)) = &block {
                 let folded = fields.entry(key.clone()).or_insert_with(String::new);
                 if !folded.is_empty() {
@@ -123,6 +123,15 @@ fn unquoted(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_unindented_list_item_is_not_a_key() {
+        let flush = parse_frontmatter("---\nname: x\nallowed-tools:\n- Bash(git add:*)\n---\n");
+        let indented =
+            parse_frontmatter("---\nname: x\nallowed-tools:\n  - Bash(git add:*)\n---\n");
+        assert_eq!(flush, indented);
+        assert!(!flush.contains_key("- Bash(git add"));
+    }
+
     use super::*;
 
     #[test]

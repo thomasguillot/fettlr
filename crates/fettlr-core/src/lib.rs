@@ -35,7 +35,10 @@ pub use mcp::{
 };
 pub use models::{Scope, UNKNOWN_VERSION, UpdateState};
 pub use paths::Paths;
-pub use skills::{Clock, ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore};
+pub use skills::{
+    Clock, ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsCliOrigin,
+    SkillsLock, read_skills_lock, record_skill_update,
+};
 pub use snapshot::Snapshot;
 pub use subagents::Subagent;
 pub use trashing::{SystemTrasher, Trashing};

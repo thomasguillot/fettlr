@@ -392,6 +392,8 @@ pub enum CoreError {
         reason: String,
         backup: Option<String>,
     },
+    #[error("{path} changed while Fettlr was updating a skill; nothing was written")]
+    SkillsLockChanged { path: String },
     #[error("failed to move {path} to the trash: {reason}")]
     Trash { path: String, reason: String },
     #[error("could not read {path}")]

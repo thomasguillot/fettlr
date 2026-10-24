@@ -401,6 +401,29 @@ impl TempTree {
         path.to_path_buf()
     }
 
+    pub fn write_skills_lock(&self, skills: serde_json::Value) {
+        let lock = serde_json::json!({
+            "version": 3,
+            "skills": skills,
+            "dismissed": {"findSkillsPrompt": true},
+            "lastSelectedAgents": ["claude-code"]
+        });
+        self.write(
+            &serde_json::to_string_pretty(&lock).expect("serialize lock"),
+            &self.paths.skills_cli_lock(),
+        );
+    }
+
+    pub fn make_skills_cli_skill(&self, name: &str) -> PathBuf {
+        let canonical = self.paths.skills_cli_skills_dir().join(name);
+        self.write(&format!("# {name}\n"), &canonical.join("SKILL.md"));
+        let link = self.paths.skills_dir().join(name);
+        self.make_directory(&self.paths.skills_dir());
+        std::os::unix::fs::symlink(format!("../../.agents/skills/{name}"), &link)
+            .expect("link skill");
+        link
+    }
+
     pub fn write_claude_json_raw(&self, raw: &str) {
         self.write(raw, &self.paths.claude_json);
     }

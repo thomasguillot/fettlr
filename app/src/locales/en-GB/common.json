@@ -237,6 +237,7 @@
       "behindVersion": "Local copy is newer ({{version}})",
       "noNewerCopy": "No newer local copy",
       "package": "Package as ZIP",
+      "packageShort": "Package",
       "packageHint": "Fettlr can't change skills on your Claude account. Package the newer copy as a ZIP, then upload it in Claude's skill settings."
     }
   },

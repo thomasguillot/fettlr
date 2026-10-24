@@ -237,6 +237,7 @@
       "behindVersion": "Copie locale plus récente ({{version}})",
       "noNewerCopy": "Aucune copie locale plus récente",
       "package": "Exporter en ZIP",
+      "packageShort": "Exporter",
       "packageHint": "Fettlr ne peut pas modifier les compétences de votre compte Claude. Exportez la copie la plus récente en ZIP, puis importez-la dans les réglages des compétences de Claude."
     }
   },

@@ -1,11 +1,17 @@
 use fettlr_core::{
-    ConnectorState, CoreError, McpListing, McpServerConfig, Scope, merge_connectors,
-    parse_marketplace_list, parse_mcp_list, parse_plugin_catalogue, parse_plugin_list,
+    ConnectorState, CoreError, McpListing, McpServerConfig, Scope, UNKNOWN_VERSION,
+    merge_connectors, parse_marketplace_list, parse_mcp_list, parse_plugin_catalogue,
+    parse_plugin_list,
 };
 
 const PLUGIN_LIST: &str = include_str!("fixtures/plugin-list.json");
 const PLUGIN_LIST_AVAILABLE: &str = include_str!("fixtures/plugin-list-available.json");
 const MARKETPLACE_LIST: &str = include_str!("fixtures/marketplace-list.json");
+
+fn installed_part_of(json: &str) -> String {
+    let value: serde_json::Value = serde_json::from_str(json).expect("valid fixture");
+    serde_json::to_string(&value["installed"]).expect("serializable")
+}
 
 #[test]
 fn plugin_list_decodes_every_entry() {
@@ -35,9 +41,23 @@ fn plugin_list_decodes_every_entry() {
 }
 
 #[test]
-fn unknown_version_sentinel_survives() {
+fn commit_versions_decode_verbatim() {
     let plugins = parse_plugin_list(PLUGIN_LIST).expect("valid fixture");
-    assert_eq!(plugins.iter().filter(|p| p.version == "unknown").count(), 3);
+    assert_eq!(
+        plugins
+            .iter()
+            .filter(|p| p.version == "58267944f921")
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn a_record_with_no_version_reads_as_the_unknown_sentinel() {
+    let plugins =
+        parse_plugin_list(r#"[{"id":"widgets@acme","installPath":"/p"}]"#).expect("valid json");
+    assert_eq!(plugins.len(), 1);
+    assert_eq!(plugins[0].version, UNKNOWN_VERSION);
 }
 
 #[test]
@@ -218,7 +238,7 @@ fn malformed_marketplace_json_returns_bad_json_error() {
 #[test]
 fn available_listing_splits_installed_from_available() {
     let plugins = parse_plugin_list(PLUGIN_LIST_AVAILABLE).expect("valid fixture");
-    assert_eq!(plugins.iter().filter(|p| !p.is_available_only).count(), 2);
+    assert_eq!(plugins.iter().filter(|p| !p.is_available_only).count(), 3);
     assert_eq!(plugins.iter().filter(|p| p.is_available_only).count(), 5);
 }
 
@@ -267,11 +287,11 @@ fn available_entry_version_falls_back_to_unknown() {
         .expect("agent-sdk-dev present");
     assert_eq!(sdk.version, "unknown");
 
-    let impeccable = plugins
+    let design = plugins
         .iter()
-        .find(|p| p.name == "impeccable")
-        .expect("impeccable present");
-    assert_eq!(impeccable.version, "4.1.1");
+        .find(|p| p.name == "design")
+        .expect("design present");
+    assert_eq!(design.version, "1.2.0");
 }
 
 #[test]
@@ -290,6 +310,24 @@ fn plugin_catalogue_keeps_entries_the_merged_list_prunes() {
         catalogue
             .iter()
             .any(|p| p.plugin_id == "linear@claude-plugins-official")
+    );
+}
+
+#[test]
+fn the_real_catalogue_leaves_out_what_is_installed_at_user_scope() {
+    let installed = parse_plugin_list(&installed_part_of(PLUGIN_LIST_AVAILABLE)).unwrap();
+    let catalogue = parse_plugin_catalogue(PLUGIN_LIST_AVAILABLE).unwrap();
+    for record in installed.iter().filter(|r| r.scope == Scope::User) {
+        assert!(
+            !catalogue
+                .iter()
+                .any(|entry| entry.plugin_id == record.plugin_id)
+        );
+    }
+    assert!(
+        catalogue
+            .iter()
+            .any(|e| e.plugin_id == "linear@claude-plugins-official")
     );
 }
 

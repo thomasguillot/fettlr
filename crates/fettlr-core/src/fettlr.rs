@@ -16,7 +16,7 @@ use crate::skills::{
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
 use crate::trashing::Trashing;
-use crate::updates::{GitProbing, RegistryClient, UpdateChecker};
+use crate::updates::{GitProbing, RegistryClient, UpdateChecker, read_plugin_catalogue};
 
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,10 +208,11 @@ impl Fettlr {
             }
         };
 
+        let catalogue = read_plugin_catalogue(&self.paths);
         let report = self.update_checker.check(
             &snapshot.marketplaces,
             &snapshot.plugins,
-            &available_plugins,
+            &catalogue,
             &snapshot.skills,
             &snapshot.mcp_servers,
         );

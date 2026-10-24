@@ -15,6 +15,7 @@ use crate::skills::{Provenance, Skill};
 
 use super::git::GitProbing;
 use super::package_spec::PackageSpec;
+use super::plugin_catalogue::{CatalogueVersion, PluginCatalogue};
 use super::registry::{PackageRegistry, RegistryClient};
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -85,20 +86,16 @@ impl UpdateChecker {
     /// Checks every item the app can badge, in one pass. Never fails as a whole: a failure on one
     /// item leaves that item `Unknown` and the rest checked.
     ///
-    /// `plugins` should be the installed records; `available` should be the marketplace catalogue
-    /// (every listed plugin, including ones already installed). `PluginRecord::is_available_only`
-    /// entries in `available` seed the catalogue lookup, so the checker never matches an installed
-    /// plugin against itself.
+    /// `plugins` should be the installed records; `catalogue` the versions the marketplaces on disk
+    /// currently offer, as read by `read_plugin_catalogue`.
     pub fn check(
         &self,
         marketplaces: &[MarketplaceRecord],
         plugins: &[PluginRecord],
-        available: &[PluginRecord],
+        catalogue: &PluginCatalogue,
         skills: &[Skill],
         mcp: &[McpServer],
     ) -> UpdateReport {
-        let catalogue = build_catalogue(available);
-
         let mut jobs: Vec<Job<'_>> = Vec::new();
 
         for record in marketplaces {
@@ -111,7 +108,6 @@ impl UpdateChecker {
         }
 
         for plugin in plugins {
-            let catalogue = &catalogue;
             jobs.push(Job {
                 target: Target::Plugin,
                 id: plugin.id(),
@@ -233,27 +229,34 @@ fn behind_state(result: Result<u32, CoreError>) -> UpdateState {
     }
 }
 
-fn build_catalogue(available: &[PluginRecord]) -> BTreeMap<String, PluginRecord> {
-    let mut catalogue: BTreeMap<String, PluginRecord> = BTreeMap::new();
-    for candidate in available.iter().filter(|plugin| plugin.is_available_only) {
-        catalogue
-            .entry(candidate.plugin_id.clone())
-            .and_modify(|existing| {
-                if is_newer(&candidate.version, &existing.version) {
-                    *existing = candidate.clone();
-                }
-            })
-            .or_insert_with(|| candidate.clone());
-    }
-    catalogue
-}
-
-fn plugin_state(plugin: &PluginRecord, catalogue: &BTreeMap<String, PluginRecord>) -> UpdateState {
+fn plugin_state(plugin: &PluginRecord, catalogue: &PluginCatalogue) -> UpdateState {
     if plugin.is_available_only {
         return UpdateState::Unknown;
     }
     match catalogue.get(&plugin.plugin_id) {
-        Some(latest) => version_state(&plugin.version, &latest.version),
+        Some(CatalogueVersion::Version(latest)) => version_state(&plugin.version, latest),
+        Some(CatalogueVersion::Commit(sha)) => commit_state(&plugin.version, sha),
+        Some(CatalogueVersion::Untracked) | None => UpdateState::Unknown,
+    }
+}
+
+fn commit_state(installed: &str, sha: &str) -> UpdateState {
+    let is_short_sha = installed.len() == 12
+        && installed
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+    if !is_short_sha {
+        return UpdateState::Unknown;
+    }
+    let sha = sha.to_ascii_lowercase();
+    if sha.starts_with(installed) {
+        return UpdateState::UpToDate;
+    }
+    match sha.get(..12) {
+        Some(latest) => UpdateState::UpdateAvailable {
+            installed: installed.to_string(),
+            latest: latest.to_string(),
+        },
         None => UpdateState::Unknown,
     }
 }
@@ -282,15 +285,6 @@ fn version_state(installed: &str, latest: &str) -> UpdateState {
         // offers one that never clears: the version is still uncomparable after it is applied, so
         // every check asks for it again and every Update All reports success over nothing.
         _ => UpdateState::Unknown,
-    }
-}
-
-fn is_newer(candidate: &str, existing: &str) -> bool {
-    match (numeric_fields(candidate), numeric_fields(existing)) {
-        (Some(candidate_fields), Some(existing_fields)) => {
-            is_older(&existing_fields, &candidate_fields)
-        }
-        _ => false,
     }
 }
 

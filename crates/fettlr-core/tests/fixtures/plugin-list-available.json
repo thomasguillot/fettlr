@@ -7,17 +7,29 @@
       "enabled": true,
       "installPath": "/Users/dev/.claude/plugins/cache/accesslint/accesslint/0.10.2",
       "installedAt": "2026-03-28T17:16:40.547Z",
-      "lastUpdated": "2026-08-19T07:59:43.325Z"
+      "lastUpdated": "2026-08-19T07:59:43.325Z",
+      "projectEnabled": false
+    },
+    {
+      "id": "context7@claude-plugins-official",
+      "version": "58267944f921",
+      "scope": "user",
+      "enabled": true,
+      "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/context7/58267944f921",
+      "installedAt": "2026-08-07T07:30:51.885Z",
+      "lastUpdated": "2026-10-23T19:56:04.247Z",
+      "projectEnabled": false
     },
     {
       "id": "linear@claude-plugins-official",
-      "version": "unknown",
+      "version": "58267944f921",
       "scope": "project",
       "enabled": false,
-      "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/unknown",
+      "installPath": "/Users/dev/.claude/plugins/cache/claude-plugins-official/linear/58267944f921",
       "installedAt": "2026-03-18T14:31:56.664Z",
-      "lastUpdated": "2026-08-22T13:14:53.210Z",
-      "projectPath": "/Users/dev/Sites/example-project"
+      "lastUpdated": "2026-10-23T19:56:04.236Z",
+      "projectPath": "/Users/dev/Sites/example-project",
+      "projectEnabled": false
     }
   ],
   "available": [
@@ -27,7 +39,7 @@
       "description": "Development kit for working with the Claude Agent SDK",
       "marketplaceName": "claude-plugins-official",
       "source": "./plugins/agent-sdk-dev",
-      "installCount": 68246
+      "installCount": 67988
     },
     {
       "pluginId": "aws-serverless@claude-plugins-official",
@@ -39,9 +51,22 @@
         "url": "https://github.com/awslabs/agent-plugins.git",
         "path": "plugins/aws-serverless",
         "ref": "main",
-        "sha": "34afdf5005325f17d5da2d1443b87f27a53b0a20"
+        "sha": "097fe8ad56d8a1d5e2c81d7880adf145553cf244"
       },
-      "installCount": 9223
+      "installCount": 9867
+    },
+    {
+      "pluginId": "design@anthropic-plugin-directory",
+      "name": "design",
+      "description": "Design workflows.",
+      "marketplaceName": "anthropic-plugin-directory",
+      "version": "1.2.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/anthropics/knowledge-work-plugins",
+        "path": "design",
+        "sha": "33d3dea41a341b341d4f5da2e8801ae0c89be2b8"
+      }
     },
     {
       "pluginId": "notion@claude-plugins-official",
@@ -55,20 +80,12 @@
       }
     },
     {
-      "pluginId": "impeccable@impeccable",
-      "name": "impeccable",
-      "description": "Design fluency for frontend development.",
-      "marketplaceName": "impeccable",
-      "version": "4.1.1",
-      "source": "./plugin"
-    },
-    {
       "pluginId": "linear@claude-plugins-official",
       "name": "linear",
       "description": "Linear issue tracking integration.",
       "marketplaceName": "claude-plugins-official",
-      "source": "./plugins/linear",
-      "installCount": 41207
+      "source": "./external_plugins/linear",
+      "installCount": 52791
     }
   ]
 }

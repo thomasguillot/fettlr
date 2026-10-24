@@ -61,8 +61,8 @@ impl UpdateState {
     /// exactly the items this reports true for, so anything deciding for itself would count work the
     /// run then skips and report success over an empty run.
     ///
-    /// A catalogue entry with no version reads as `latest: "unknown"`, which says nothing about
-    /// whether the installed copy is stale, so treating it as due would be an invented claim.
+    /// A `latest` of `"unknown"` says nothing about whether the installed copy is stale, so
+    /// treating it as due would be an invented claim.
     pub fn is_stale(&self) -> bool {
         match self {
             UpdateState::Behind { commits } => *commits > 0,

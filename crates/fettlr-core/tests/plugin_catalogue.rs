@@ -220,3 +220,105 @@ fn no_known_marketplaces_file_is_an_empty_catalogue() {
     assert!(catalogue.is_empty());
     assert_eq!(catalogue.len(), 0);
 }
+
+#[test]
+fn a_malformed_entry_drops_only_itself() {
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "m",
+        github(),
+        json!([
+            {"name": "bad", "version": 3, "source": "./bad"},
+            {"name": "good", "version": "1.0.0", "source": "./good"}
+        ]),
+    );
+    let catalogue = read_plugin_catalogue(&tree.paths);
+    assert_eq!(catalogue.get("good@m").cloned(), version("1.0.0"));
+    assert_eq!(catalogue.get("bad@m"), None);
+}
+
+#[test]
+fn a_malformed_known_marketplace_drops_only_itself() {
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "bad",
+        github(),
+        json!([{"name": "p", "version": "1.0.0", "source": "./p"}]),
+    );
+    tree.write_marketplace(
+        "fine",
+        github(),
+        json!([{"name": "q", "version": "2.0.0", "source": "./q"}]),
+    );
+    let known_path = tree.paths.known_marketplaces_json();
+    let mut known: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&known_path).expect("read known"))
+            .expect("parse known");
+    known["bad"]["installLocation"] = json!(7);
+    tree.write(&known.to_string(), &known_path);
+    let catalogue = read_plugin_catalogue(&tree.paths);
+    assert_eq!(catalogue.get("q@fine").cloned(), version("2.0.0"));
+    assert_eq!(catalogue.get("p@bad"), None);
+}
+
+#[test]
+fn a_git_marketplace_source_reads_relative_versions() {
+    let tree = TempTree::new();
+    let dir = tree.write_marketplace(
+        "m",
+        json!({"source": "git", "url": "git@example.com:acme/market.git"}),
+        json!([{"name": "p", "source": "./p"}]),
+    );
+    tree.write_plugin_manifest(&dir, "./p", Some("3.2.1"));
+    assert_eq!(
+        read_plugin_catalogue(&tree.paths).get("p@m").cloned(),
+        version("3.2.1")
+    );
+}
+
+#[test]
+fn the_install_location_is_honoured() {
+    let tree = TempTree::new();
+    let dir = tree.write_marketplace(
+        "m",
+        github(),
+        json!([{"name": "p", "version": "1.0.0", "source": "./p"}]),
+    );
+    let elsewhere = tree.root().join("elsewhere").join("m");
+    tree.make_directory(elsewhere.parent().expect("parent"));
+    std::fs::rename(&dir, &elsewhere).expect("move marketplace");
+    let known_path = tree.paths.known_marketplaces_json();
+    let mut known: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&known_path).expect("read known"))
+            .expect("parse known");
+    known["m"]["installLocation"] = json!(elsewhere);
+    tree.write(&known.to_string(), &known_path);
+    assert!(!dir.exists());
+    assert_eq!(
+        read_plugin_catalogue(&tree.paths).get("p@m").cloned(),
+        version("1.0.0")
+    );
+}
+
+#[test]
+fn a_missing_install_location_falls_back_to_the_marketplaces_dir() {
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "m",
+        github(),
+        json!([{"name": "p", "version": "1.0.0", "source": "./p"}]),
+    );
+    let known_path = tree.paths.known_marketplaces_json();
+    let mut known: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&known_path).expect("read known"))
+            .expect("parse known");
+    known["m"]
+        .as_object_mut()
+        .expect("record")
+        .remove("installLocation");
+    tree.write(&known.to_string(), &known_path);
+    assert_eq!(
+        read_plugin_catalogue(&tree.paths).get("p@m").cloned(),
+        version("1.0.0")
+    );
+}

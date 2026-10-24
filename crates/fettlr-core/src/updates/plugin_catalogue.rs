@@ -54,7 +54,7 @@ struct KnownMarketplace {
 #[derive(Deserialize)]
 struct MarketplaceManifest {
     #[serde(default)]
-    plugins: Vec<MarketplaceEntry>,
+    plugins: Vec<Value>,
 }
 
 #[derive(Deserialize)]
@@ -76,11 +76,21 @@ struct PluginManifest {
 /// Never fails: anything missing or malformed contributes nothing and is logged.
 pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
     let known_path = paths.known_marketplaces_json();
-    let Some(known) = read_json::<BTreeMap<String, KnownMarketplace>>(&known_path) else {
+    let Some(known) = read_json::<BTreeMap<String, Value>>(&known_path) else {
         return PluginCatalogue::default();
     };
     let mut entries = BTreeMap::new();
     for (marketplace, record) in known {
+        let record = match serde_json::from_value::<KnownMarketplace>(record) {
+            Ok(record) => record,
+            Err(error) => {
+                log::warn!(
+                    "skipping marketplace {marketplace} in {}: {error}",
+                    known_path.display()
+                );
+                continue;
+            }
+        };
         let dir = match &record.install_location {
             Some(location) if !location.is_empty() => Path::new(location).to_path_buf(),
             _ => paths.marketplaces_dir().join(&marketplace),
@@ -93,7 +103,18 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             record.source.get("source").and_then(Value::as_str),
             Some("github" | "git")
         );
-        for entry in manifest.plugins {
+        for raw in manifest.plugins {
+            let entry = match serde_json::from_value::<MarketplaceEntry>(raw.clone()) {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let name = raw.get("name").and_then(Value::as_str).unwrap_or("?");
+                    log::warn!(
+                        "skipping plugin {name} in {}: {error}",
+                        manifest_path.display()
+                    );
+                    continue;
+                }
+            };
             let id = format!("{}@{marketplace}", entry.name);
             if entry.name.is_empty() || entries.contains_key(&id) {
                 continue;
@@ -142,7 +163,13 @@ fn classify(
                 .join("plugin.json");
             let manifest_version = std::fs::read_to_string(&manifest_path)
                 .ok()
-                .and_then(|raw| serde_json::from_str::<PluginManifest>(&raw).ok())
+                .and_then(|raw| match serde_json::from_str::<PluginManifest>(&raw) {
+                    Ok(manifest) => Some(manifest),
+                    Err(error) => {
+                        log::warn!("cannot parse {}: {error}", manifest_path.display());
+                        None
+                    }
+                })
                 .and_then(|manifest| non_empty(manifest.version.as_deref()));
             manifest_version
                 .or(entry_version)
@@ -172,7 +199,7 @@ fn classify(
 
 fn stays_inside(relative: &str) -> bool {
     let path = Path::new(relative);
-    !path.is_absolute() && !path.components().any(|c| c == Component::ParentDir)
+    !path.is_absolute() && !path.has_root() && !path.components().any(|c| c == Component::ParentDir)
 }
 
 fn is_full_sha(value: &str) -> bool {

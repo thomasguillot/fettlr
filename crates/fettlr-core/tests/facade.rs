@@ -386,6 +386,7 @@ mod checking_for_updates {
         assert!(!checked.cli_available);
         assert!(checked.available_plugins.is_empty());
     }
+
     #[test]
     fn check_updates_judges_installed_plugins_against_the_marketplace_on_disk() {
         let tree = TempTree::new();

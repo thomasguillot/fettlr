@@ -122,6 +122,40 @@ impl GitProbing for CountingGitProbe {
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
         Ok(())
     }
+
+    fn fetch_source(
+        &self,
+        _url: &str,
+        _reference: Option<&str>,
+        _cache_repo: &Path,
+    ) -> Result<String, CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
+    }
+
+    fn tree_sha(
+        &self,
+        _cache_repo: &Path,
+        _commit: &str,
+        _folder: &str,
+    ) -> Result<Option<String>, CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
+    }
+
+    fn export_folder(
+        &self,
+        _cache_repo: &Path,
+        _commit: &str,
+        _folder: &str,
+        _destination: &Path,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
+    }
 }
 
 #[test]

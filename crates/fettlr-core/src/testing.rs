@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -188,6 +188,10 @@ pub struct FakeGitProbe {
     counts: HashMap<String, u32>,
     failures: HashSet<String>,
     panics: HashSet<String>,
+    sources: HashMap<String, (String, BTreeMap<String, String>)>,
+    unreachable: HashSet<String>,
+    fetches: Mutex<HashMap<String, usize>>,
+    exported: Mutex<Vec<(String, PathBuf)>>,
 }
 
 impl FakeGitProbe {
@@ -196,6 +200,10 @@ impl FakeGitProbe {
             counts: HashMap::new(),
             failures: HashSet::new(),
             panics: HashSet::new(),
+            sources: HashMap::new(),
+            unreachable: HashSet::new(),
+            fetches: Mutex::new(HashMap::new()),
+            exported: Mutex::new(Vec::new()),
         }
     }
 
@@ -205,8 +213,7 @@ impl FakeGitProbe {
                 .into_iter()
                 .map(|(path, count)| (path.into(), count))
                 .collect(),
-            failures: HashSet::new(),
-            panics: HashSet::new(),
+            ..Self::new()
         }
     }
 
@@ -220,7 +227,7 @@ impl FakeGitProbe {
                 .map(|(path, count)| (path.to_string(), count))
                 .collect(),
             failures: failures.into_iter().map(str::to_string).collect(),
-            panics: HashSet::new(),
+            ..Self::new()
         }
     }
 
@@ -233,8 +240,62 @@ impl FakeGitProbe {
                 .into_iter()
                 .map(|(path, count)| (path.to_string(), count))
                 .collect(),
-            failures: HashSet::new(),
             panics: panics.into_iter().map(str::to_string).collect(),
+            ..Self::new()
+        }
+    }
+
+    pub fn with_sources(
+        sources: impl IntoIterator<
+            Item = (
+                &'static str,
+                &'static str,
+                BTreeMap<&'static str, &'static str>,
+            ),
+        >,
+    ) -> Self {
+        Self {
+            sources: sources
+                .into_iter()
+                .map(|(url, commit, folders)| {
+                    (
+                        url.to_string(),
+                        (
+                            commit.to_string(),
+                            folders
+                                .into_iter()
+                                .map(|(folder, sha)| (folder.to_string(), sha.to_string()))
+                                .collect(),
+                        ),
+                    )
+                })
+                .collect(),
+            ..Self::new()
+        }
+    }
+
+    pub fn with_unreachable_source(mut self, url: &'static str) -> Self {
+        self.unreachable.insert(url.to_string());
+        self
+    }
+
+    pub fn fetch_count(&self, url: &str) -> usize {
+        self.fetches
+            .lock()
+            .expect("lock poisoned")
+            .get(url)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn exports(&self) -> Vec<(String, PathBuf)> {
+        self.exported.lock().expect("lock poisoned").clone()
+    }
+
+    fn unreachable_error() -> CoreError {
+        CoreError::Cli {
+            command: "git ls-remote".into(),
+            stderr: "unreachable".into(),
         }
     }
 }
@@ -258,6 +319,65 @@ impl GitProbing for FakeGitProbe {
     }
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
+        Ok(())
+    }
+
+    fn fetch_source(
+        &self,
+        url: &str,
+        _reference: Option<&str>,
+        _cache_repo: &Path,
+    ) -> Result<String, CoreError> {
+        *self
+            .fetches
+            .lock()
+            .expect("lock poisoned")
+            .entry(url.to_string())
+            .or_insert(0) += 1;
+        if self.unreachable.contains(url) {
+            return Err(Self::unreachable_error());
+        }
+        self.sources
+            .get(url)
+            .map(|(commit, _)| commit.clone())
+            .ok_or_else(Self::unreachable_error)
+    }
+
+    fn tree_sha(
+        &self,
+        _cache_repo: &Path,
+        commit: &str,
+        folder: &str,
+    ) -> Result<Option<String>, CoreError> {
+        Ok(self
+            .sources
+            .values()
+            .find(|(source_commit, _)| source_commit == commit)
+            .and_then(|(_, folders)| folders.get(folder).cloned()))
+    }
+
+    fn export_folder(
+        &self,
+        _cache_repo: &Path,
+        commit: &str,
+        folder: &str,
+        destination: &Path,
+    ) -> Result<(), CoreError> {
+        let target = destination.join(folder);
+        std::fs::create_dir_all(&target).map_err(|error| CoreError::Cli {
+            command: "git checkout".into(),
+            stderr: error.to_string(),
+        })?;
+        std::fs::write(target.join("SKILL.md"), format!("exported {commit}")).map_err(|error| {
+            CoreError::Cli {
+                command: "git checkout".into(),
+                stderr: error.to_string(),
+            }
+        })?;
+        self.exported
+            .lock()
+            .expect("lock poisoned")
+            .push((folder.to_string(), destination.to_path_buf()));
         Ok(())
     }
 }

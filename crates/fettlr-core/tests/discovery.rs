@@ -1196,6 +1196,10 @@ mod subagents {
             config.project_subagents[1].id
         );
     }
+}
+
+mod skills_cli {
+    use super::*;
 
     fn animate_entry() -> Value {
         json!({
@@ -1326,7 +1330,7 @@ mod subagents {
             config
                 .warnings
                 .iter()
-                .any(|warning| warning.contains("Fettlr does not recognise version 4 of"))
+                .any(|warning| warning.contains("Fettlr does not recognize version 4 of"))
         );
     }
 
@@ -1335,16 +1339,65 @@ mod subagents {
         let tree = TempTree::new();
         tree.make_skills_cli_skill("animate");
         tree.write("{", &tree.paths.skills_cli_lock());
+        let serde_error = serde_json::from_str::<Value>("{").expect_err("malformed");
 
         let config = discover(&tree.paths).expect("discover");
 
         assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
-        let lock = tree.paths.skills_cli_lock().display().to_string();
-        assert!(
-            config
-                .warnings
-                .iter()
-                .any(|warning| warning.contains(&lock))
+        let expected = format!(
+            "Could not read {} as a skills CLI lock file: {serde_error}.",
+            tree.paths.skills_cli_lock().display()
         );
+        assert!(config.warnings.contains(&expected), "{:?}", config.warnings);
+    }
+
+    #[test]
+    fn a_link_whose_canonical_folder_is_itself_a_link_stays_local() {
+        let tree = TempTree::new();
+        let elsewhere = tree.root().join("elsewhere").join("animate");
+        tree.write("# animate\n", &elsewhere.join("SKILL.md"));
+        tree.make_skill_symlink("animate", &tree.paths.skills_cli_skills_dir(), &elsewhere);
+        tree.make_skill_symlink(
+            "animate",
+            &tree.paths.skills_dir(),
+            Path::new("../../.agents/skills/animate"),
+        );
+        tree.write_skills_lock(animate_entry());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        assert_eq!(user_skill(&config, "animate").provenance, Provenance::Local);
+    }
+
+    #[test]
+    fn a_project_skill_is_never_relabelled() {
+        let tree = TempTree::new();
+        let project = tree.make_project("example-project");
+        tree.write_claude_json(json!({
+            "projects": { project.display().to_string(): {} }
+        }));
+        tree.write(
+            "# animate\n",
+            &tree
+                .paths
+                .skills_cli_skills_dir()
+                .join("animate")
+                .join("SKILL.md"),
+        );
+        tree.make_skill_symlink(
+            "animate",
+            &tree.project_skills_dir(&project),
+            &tree.paths.skills_cli_skills_dir().join("animate"),
+        );
+        tree.write_skills_lock(animate_entry());
+
+        let config = discover(&tree.paths).expect("discover");
+
+        let skill = config
+            .project_skills
+            .iter()
+            .find(|skill| skill.name == "animate")
+            .expect("project skill is listed");
+        assert_eq!(skill.provenance, Provenance::Local);
     }
 }

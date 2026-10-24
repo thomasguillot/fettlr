@@ -53,6 +53,23 @@ impl GitProbe {
         ProcessCliRunner.run(Path::new(Self::BINARY), &owned, Some(repo), Self::TIMEOUT)
     }
 
+    /// The url may carry credentials, so a failure names the command with `<url>` in its place.
+    fn set_origin_url(&self, url: &str, repo: &Path) -> Result<(), CoreError> {
+        const SHOWN: &[&str] = &["config", "remote.origin.url", "<url>"];
+        let output = self
+            .run(&["config", "remote.origin.url", url], repo)
+            .map_err(|error| match error {
+                CoreError::Timeout { .. } => CoreError::Timeout {
+                    command: format!("git {}", SHOWN.join(" ")),
+                },
+                other => other,
+            })?;
+        if output.exit_code != 0 {
+            return Err(failed(SHOWN, output.stderr));
+        }
+        Ok(())
+    }
+
     fn run_ok(&self, args: &[&str], repo: &Path) -> Result<CliOutput, CoreError> {
         let output = self.run(args, repo)?;
         if output.exit_code != 0 {
@@ -116,9 +133,15 @@ impl GitProbing for GitProbe {
         reference: Option<&str>,
         cache_repo: &Path,
     ) -> Result<String, CoreError> {
+        if !(url.starts_with("https://") || url.starts_with("file://")) {
+            return Err(CoreError::Cli {
+                command: "fettlr: unsupported source url".into(),
+                stderr: "refusing a source url that is not https:// or file://".into(),
+            });
+        }
         if reference.is_some_and(|reference| reference.starts_with('-')) {
             return Err(CoreError::Cli {
-                command: "git fetch".into(),
+                command: "fettlr: invalid reference".into(),
                 stderr: "refusing a reference that starts with a dash".into(),
             });
         }
@@ -126,7 +149,7 @@ impl GitProbing for GitProbe {
         if !cache_repo.join("HEAD").exists() {
             self.run_ok(&["init", "--quiet", "--bare", "."], cache_repo)?;
         }
-        self.run_ok(&["config", "remote.origin.url", url], cache_repo)?;
+        self.set_origin_url(url, cache_repo)?;
         self.run_ok(&["config", "remote.origin.promisor", "true"], cache_repo)?;
         self.run_ok(
             &["config", "remote.origin.partialclonefilter", "blob:none"],

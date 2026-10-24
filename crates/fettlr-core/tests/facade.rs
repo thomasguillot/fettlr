@@ -1204,6 +1204,13 @@ mod skills_cli_updates {
         root["skills"]["animate"].clone()
     }
 
+    fn set_aside_folder(tree: &TempTree) -> PathBuf {
+        tree.paths
+            .skills_cli_dir()
+            .join(".fettlr-replaced")
+            .join("animate")
+    }
+
     fn canonical_skill_md(tree: &TempTree) -> PathBuf {
         tree.paths
             .skills_cli_skills_dir()
@@ -1233,10 +1240,7 @@ mod skills_cli_updates {
         assert_eq!(entry["skillFolderHash"], NEW_HASH);
         assert_ne!(entry["updatedAt"], OLD_UPDATED_AT);
         assert_eq!(std::fs::read_link(&link).expect("read link"), link_target);
-        assert_eq!(
-            trasher.trashed(),
-            vec![tree.paths.skills_cli_dir().join(".fettlr-replaced-animate")]
-        );
+        assert_eq!(trasher.trashed(), vec![set_aside_folder(&tree)]);
     }
 
     #[test]
@@ -1324,7 +1328,7 @@ mod skills_cli_updates {
     fn an_update_after_a_crash_past_the_swap_converges() {
         let tree = installed_tree();
         tree.write(&format!("exported {COMMIT}"), &canonical_skill_md(&tree));
-        let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        let set_aside = set_aside_folder(&tree);
         tree.write("# animate\n", &set_aside.join("SKILL.md"));
         let trasher = Arc::new(RemovingTrasher::default());
         let runner = Arc::new(ScriptedCliRunner::new());
@@ -1358,13 +1362,14 @@ mod skills_cli_updates {
     }
 
     #[test]
-    fn an_update_whose_lock_hash_already_matches_rewrites_only_the_lock() {
+    fn an_update_whose_lock_hash_already_matches_writes_nothing() {
         let tree = TempTree::new();
         tree.make_skills_cli_skill("animate");
         let mut current = lock_entry();
         current["skillFolderHash"] = json!(NEW_HASH);
         tree.write_skills_lock(json!({"animate": current}));
         let skill_before = std::fs::read(canonical_skill_md(&tree)).expect("read skill");
+        let lock_before = std::fs::read(tree.paths.skills_cli_lock()).expect("read lock");
         let git = Arc::new(source_probe());
         let trasher = Arc::new(FakeTrasher::new());
         let fettlr = fettlr_for(&tree, git.clone(), trasher.clone());
@@ -1378,9 +1383,10 @@ mod skills_cli_updates {
             std::fs::read(canonical_skill_md(&tree)).expect("read skill"),
             skill_before
         );
-        let entry = lock_entry_on_disk(&tree);
-        assert_eq!(entry["skillFolderHash"], NEW_HASH);
-        assert_ne!(entry["updatedAt"], OLD_UPDATED_AT);
+        assert_eq!(
+            std::fs::read(tree.paths.skills_cli_lock()).expect("read lock"),
+            lock_before
+        );
     }
 
     #[test]
@@ -1462,7 +1468,7 @@ mod skills_cli_updates {
         let elsewhere = tree.root().join("elsewhere").join("animate");
         let real_skill_md = tree.write("# animate\n", &elsewhere.join("SKILL.md"));
         tree.make_skill_symlink("animate", &tree.paths.skills_cli_skills_dir(), &elsewhere);
-        tree.make_skill_symlink(
+        let link = tree.make_skill_symlink(
             "animate",
             &tree.paths.skills_dir(),
             Path::new("../../.agents/skills/animate"),
@@ -1472,11 +1478,10 @@ mod skills_cli_updates {
         let git = Arc::new(source_probe());
         let fettlr = fettlr_for(&tree, git.clone(), Arc::new(FakeTrasher::new()));
         fettlr.refresh().expect("refresh");
-        let skill = animate(&fettlr);
-        assert!(matches!(skill.provenance, Provenance::SkillsCli(_)));
+        assert_eq!(animate(&fettlr).provenance, Provenance::Local);
 
         assert!(matches!(
-            fettlr.pull_skill(&skill),
+            fettlr.pull_skill(&hand_built("animate", link)),
             Err(CoreError::UnsupportedSkillSource { .. })
         ));
         assert_eq!(
@@ -1494,6 +1499,7 @@ mod skills_cli_updates {
             lock_before
         );
         assert!(git.exports().is_empty());
+        assert_eq!(git.fetch_count(URL), 0);
     }
 
     #[test]
@@ -1605,7 +1611,8 @@ mod skills_cli_updates {
     fn refresh_restores_a_skill_left_set_aside_by_an_interrupted_update() {
         let tree = installed_tree();
         let canonical = tree.paths.skills_cli_skills_dir().join("animate");
-        let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        let set_aside = set_aside_folder(&tree);
+        tree.make_directory(set_aside.parent().expect("parent"));
         std::fs::rename(&canonical, &set_aside).expect("set aside");
         let fettlr = fettlr_for(
             &tree,
@@ -1629,9 +1636,54 @@ mod skills_cli_updates {
     }
 
     #[test]
+    fn refresh_restores_a_skill_left_set_aside_under_the_older_name() {
+        let tree = installed_tree();
+        let canonical = tree.paths.skills_cli_skills_dir().join("animate");
+        let legacy = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        std::fs::rename(&canonical, &legacy).expect("set aside");
+        let fettlr = fettlr_for(
+            &tree,
+            Arc::new(source_probe()),
+            Arc::new(FakeTrasher::new()),
+        );
+
+        fettlr.refresh().expect("refresh");
+
+        assert_eq!(
+            std::fs::read_to_string(canonical_skill_md(&tree)).expect("read skill"),
+            "# animate\n"
+        );
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn refresh_never_restores_through_a_linked_set_aside_folder() {
+        let tree = installed_tree();
+        let canonical = tree.paths.skills_cli_skills_dir().join("animate");
+        let elsewhere = tree.root().join("elsewhere");
+        tree.make_directory(&elsewhere);
+        std::fs::rename(&canonical, elsewhere.join("animate")).expect("move away");
+        std::os::unix::fs::symlink(
+            &elsewhere,
+            tree.paths.skills_cli_dir().join(".fettlr-replaced"),
+        )
+        .expect("link set-aside folder");
+        let fettlr = fettlr_for(
+            &tree,
+            Arc::new(source_probe()),
+            Arc::new(FakeTrasher::new()),
+        );
+
+        fettlr.refresh().expect("refresh");
+
+        assert!(std::fs::symlink_metadata(&canonical).is_err());
+        assert!(elsewhere.join("animate").join("SKILL.md").is_file());
+    }
+
+    #[test]
     fn refresh_leaves_a_set_aside_folder_alone_while_the_skill_folder_exists() {
         let tree = installed_tree();
-        let set_aside = tree.paths.skills_cli_dir().join(".fettlr-replaced-animate");
+        let set_aside = set_aside_folder(&tree);
         let old = tree.write("old", &set_aside.join("SKILL.md"));
         let fettlr = fettlr_for(
             &tree,

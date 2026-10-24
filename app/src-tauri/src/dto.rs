@@ -141,7 +141,7 @@ impl From<&Provenance> for UiProvenance {
                 plugin_id: plugin_id.clone(),
             },
             Provenance::SkillsCli(origin) => UiProvenance::SkillsCli {
-                source: origin.source.clone(),
+                source: mask_url(&origin.source).0,
             },
         }
     }
@@ -947,7 +947,7 @@ impl From<&McpConnector> for UiConnector {
 
 impl From<Snapshot> for UiSnapshot {
     fn from(snapshot: Snapshot) -> Self {
-        let secrets = secret_values(
+        let mut secrets = secret_values(
             snapshot
                 .mcp_servers
                 .iter()
@@ -961,6 +961,7 @@ impl From<Snapshot> for UiSnapshot {
                         .flat_map(|servers| servers.values()),
                 ),
         );
+        secrets.extend(skill_source_secrets(snapshot.skills.iter()));
         Self {
             cli_available: snapshot.cli_available,
             skills: snapshot
@@ -1140,6 +1141,27 @@ pub fn secret_values<'a>(configs: impl Iterator<Item = &'a McpServerConfig>) -> 
         }
     }
     values.retain(|value| value.chars().count() >= MIN_SECRET_LENGTH);
+    values.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    values.dedup();
+    values
+}
+
+/// Every URL password and query value in the sources the skills CLI recorded for these skills, under
+/// the same length rules as `secret_values`, so a failed fetch that echoes its URL is scrubbed.
+pub fn skill_source_secrets<'a>(skills: impl Iterator<Item = &'a Skill>) -> Vec<String> {
+    let mut values: Vec<String> = skills
+        .filter_map(|skill| match &skill.provenance {
+            Provenance::SkillsCli(origin) => Some(origin),
+            _ => None,
+        })
+        .flat_map(|origin| {
+            std::iter::once(origin.source.as_str()).chain(origin.source_url.as_deref())
+        })
+        .flat_map(|url| mask_url_tagged(url).1)
+        .filter(|secret| !secret.weak || secret.value.chars().count() >= MIN_WEAK_SECRET_LENGTH)
+        .map(|secret| secret.value)
+        .filter(|value| value.chars().count() >= MIN_SECRET_LENGTH)
+        .collect();
     values.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
     values.dedup();
     values

@@ -61,6 +61,28 @@ fn a_root_skill_md_has_an_empty_folder() {
 }
 
 #[test]
+fn a_skill_md_beside_dot_slash_has_an_empty_folder() {
+    let tree = TempTree::new();
+    tree.write_skills_lock(json!({"solo": entry("./SKILL.md")}));
+    let SkillsLock::Read(entries) = read_skills_lock(&tree.paths.skills_cli_lock()).unwrap() else {
+        panic!("expected Read");
+    };
+    assert_eq!(entries["solo"].folder, "");
+}
+
+#[test]
+fn an_empty_ref_is_no_reference() {
+    let tree = TempTree::new();
+    let mut with_ref = entry("skills/animate/SKILL.md");
+    with_ref["ref"] = json!("");
+    tree.write_skills_lock(json!({"animate": with_ref}));
+    let SkillsLock::Read(entries) = read_skills_lock(&tree.paths.skills_cli_lock()).unwrap() else {
+        panic!("expected Read");
+    };
+    assert_eq!(entries["animate"].reference, None);
+}
+
+#[test]
 fn a_missing_lock_is_missing() {
     let tree = TempTree::new();
     assert!(matches!(
@@ -131,6 +153,7 @@ fn recording_an_update_changes_only_the_two_fields() {
     expected["skills"]["animate"]["skillFolderHash"] = json!(NEW_HASH);
     expected["skills"]["animate"]["updatedAt"] = json!("2026-10-24T10:00:00Z");
     assert_eq!(after, expected);
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
     assert_eq!(
         after["skills"]["animate"]["installedAt"],
         before["skills"]["animate"]["installedAt"]
@@ -148,6 +171,40 @@ fn recording_refuses_a_lock_that_lost_the_entry() {
 
     assert!(matches!(result, Err(CoreError::SkillsLockChanged { .. })));
     assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn recording_into_a_missing_lock_is_a_changed_lock() {
+    let tree = TempTree::new();
+    let path = tree.paths.skills_cli_lock();
+
+    let result = record_skill_update(&path, "animate", NEW_HASH, "2026-10-24T10:00:00Z");
+
+    assert!(matches!(result, Err(CoreError::SkillsLockChanged { .. })));
+    assert!(!path.exists());
+}
+
+#[test]
+fn recording_into_an_unparseable_lock_is_a_changed_lock() {
+    let tree = TempTree::new();
+    let path = tree.paths.skills_cli_lock();
+    tree.write("{ nope", &path);
+
+    let result = record_skill_update(&path, "animate", NEW_HASH, "2026-10-24T10:00:00Z");
+
+    assert!(matches!(result, Err(CoreError::SkillsLockChanged { .. })));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ nope");
+}
+
+#[test]
+fn a_lock_that_cannot_be_read_is_an_io_error() {
+    let tree = TempTree::new();
+    let path = tree.paths.skills_cli_lock();
+    tree.make_directory(&path);
+
+    let result = record_skill_update(&path, "animate", NEW_HASH, "2026-10-24T10:00:00Z");
+
+    assert!(matches!(result, Err(CoreError::Io(_))));
 }
 
 #[test]
@@ -195,6 +252,29 @@ fn replacing_a_skill_folder_swaps_it_and_trashes_the_old_copy() {
         "new"
     );
     assert!(!staged.exists());
+    assert_eq!(trasher.trashed(), vec![set_aside]);
+}
+
+#[test]
+fn replacing_a_skill_folder_parks_the_old_copy_under_its_own_name() {
+    let tree = TempTree::new();
+    let target = tree.root().join("skills").join("animate");
+    tree.write("old", &target.join("SKILL.md"));
+    let staged = tree.root().join("staging").join("animate");
+    tree.write("new", &staged.join("SKILL.md"));
+    let set_aside = tree.root().join(".fettlr-replaced").join("animate");
+    let trasher = FakeTrasher::new();
+
+    replace_skill_folder(&staged, &target, &set_aside, &trasher).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+        "new"
+    );
+    assert_eq!(
+        std::fs::read_to_string(set_aside.join("SKILL.md")).unwrap(),
+        "old"
+    );
     assert_eq!(trasher.trashed(), vec![set_aside]);
 }
 

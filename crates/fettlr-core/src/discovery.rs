@@ -138,7 +138,14 @@ fn label_skills_cli_skills(skills: &mut [Skill], paths: &Paths, warnings: &mut V
         Ok(SkillsLock::Missing) => return,
         Ok(SkillsLock::Unsupported { version }) => {
             warnings.push(format!(
-                "Fettlr does not recognise version {version} of {}; skills installed with the skills CLI are listed as local.",
+                "Fettlr does not recognize version {version} of {}; skills installed with the skills CLI are listed as local.",
+                lock_path.display()
+            ));
+            return;
+        }
+        Err(CoreError::BadJson(error)) => {
+            warnings.push(format!(
+                "Could not read {} as a skills CLI lock file: {error}.",
                 lock_path.display()
             ));
             return;
@@ -159,6 +166,9 @@ fn label_skills_cli_skills(skills: &mut [Skill], paths: &Paths, warnings: &mut V
             continue;
         }
         let canonical = paths.skills_cli_skills_dir().join(&skill.name);
+        if !std::fs::symlink_metadata(&canonical).is_ok_and(|metadata| metadata.is_dir()) {
+            continue;
+        }
         if let (Ok(linked), Ok(expected)) = (skill.path.canonicalize(), canonical.canonicalize())
             && linked == expected
         {

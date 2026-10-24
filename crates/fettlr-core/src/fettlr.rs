@@ -409,9 +409,10 @@ impl Fettlr {
                 source_name: origin.source.clone(),
             })?;
 
-        if !tree.eq_ignore_ascii_case(&origin.folder_hash) {
-            self.swap_in_source_folder(name, &cache_repo, &commit, &origin.folder, &target)?;
+        if tree.eq_ignore_ascii_case(&origin.folder_hash) {
+            return Ok(());
         }
+        self.swap_in_source_folder(name, &cache_repo, &commit, &origin.folder, &target)?;
         record_skill_update(&lock, name, &tree, &now_rfc3339())
     }
 
@@ -437,6 +438,13 @@ impl Fettlr {
                 staging.join(folder)
             };
             let set_aside = set_aside_path(&self.paths, name);
+            if let Some(parent) = set_aside.parent()
+                && std::fs::symlink_metadata(parent).is_ok_and(|metadata| !metadata.is_dir())
+            {
+                return Err(CoreError::OccupiedDestination {
+                    path: parent.display().to_string(),
+                });
+            }
             if std::fs::symlink_metadata(&set_aside).is_ok() {
                 self.trasher.trash(&set_aside)?;
             }

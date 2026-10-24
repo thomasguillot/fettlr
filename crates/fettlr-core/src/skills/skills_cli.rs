@@ -42,15 +42,17 @@ fn describe_version(root: &Value) -> String {
 fn decode_entry(entry: &Value) -> Option<SkillsCliOrigin> {
     let text = |key: &str| entry.get(key).and_then(Value::as_str);
     let skill_path = text("skillPath")?;
-    let folder = skill_path
-        .rsplit_once('/')
-        .map(|(folder, _)| folder)
-        .unwrap_or("");
+    let folder = match skill_path.rsplit_once('/') {
+        Some((".", _)) | None => "",
+        Some((folder, _)) => folder,
+    };
     Some(SkillsCliOrigin {
         source: text("source")?.to_string(),
         source_type: text("sourceType")?.to_string(),
         source_url: text("sourceUrl").map(str::to_string),
-        reference: text("ref").map(str::to_string),
+        reference: text("ref")
+            .filter(|reference| !reference.is_empty())
+            .map(str::to_string),
         folder: folder.to_string(),
         folder_hash: text("skillFolderHash")?.to_string(),
     })
@@ -96,7 +98,13 @@ pub fn record_skill_update(
     let changed = || CoreError::SkillsLockChanged {
         path: path.display().to_string(),
     };
-    let raw = std::fs::read_to_string(path).map_err(|_| changed())?;
+    let raw = std::fs::read_to_string(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            changed()
+        } else {
+            CoreError::Io(error)
+        }
+    })?;
     let mut root = serde_json::from_str::<Value>(&raw).map_err(|_| changed())?;
     if !is_version_three(&root) {
         return Err(changed());
@@ -120,6 +128,9 @@ pub fn replace_skill_folder(
     set_aside: &Path,
     trasher: &dyn Trashing,
 ) -> Result<(), CoreError> {
+    if let Some(parent) = set_aside.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     std::fs::rename(target, set_aside)?;
     if let Err(error) = std::fs::rename(staged, target) {
         if let Err(restore) = std::fs::rename(set_aside, target) {
@@ -145,48 +156,64 @@ pub(crate) fn is_plain_name(name: &str) -> bool {
     )
 }
 
-const SET_ASIDE_PREFIX: &str = ".fettlr-replaced-";
+const SET_ASIDE_DIR: &str = ".fettlr-replaced";
+const LEGACY_SET_ASIDE_PREFIX: &str = ".fettlr-replaced-";
 
-/// Where an update parks a skill's old folder while the new one is swapped in.
+/// Where an update parks a skill's old folder while the new one is swapped in. The folder keeps
+/// the skill's own name, so the copy that lands in the Trash is recognizable.
 pub(crate) fn set_aside_path(paths: &Paths, name: &str) -> PathBuf {
-    paths
-        .skills_cli_dir()
-        .join(format!("{SET_ASIDE_PREFIX}{name}"))
+    paths.skills_cli_dir().join(SET_ASIDE_DIR).join(name)
+}
+
+fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
 }
 
 /// Moves back every skill folder an interrupted update left set aside while nothing has taken its
 /// place. Never trashes or deletes anything: the set-aside copy may be the only one left.
 pub fn recover_interrupted_swaps(paths: &Paths) {
-    let Ok(entries) = std::fs::read_dir(paths.skills_cli_dir()) else {
+    let cli_dir = paths.skills_cli_dir();
+    let set_aside_dir = cli_dir.join(SET_ASIDE_DIR);
+    if is_real_dir(&set_aside_dir)
+        && let Ok(entries) = std::fs::read_dir(&set_aside_dir)
+    {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                restore_set_aside(paths, name, &entry.path());
+            }
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(&cli_dir) else {
         return;
     };
     for entry in entries.flatten() {
         let file_name = entry.file_name();
-        let Some(name) = file_name
+        if let Some(name) = file_name
             .to_str()
-            .and_then(|text| text.strip_prefix(SET_ASIDE_PREFIX))
-            .filter(|name| is_plain_name(name))
-        else {
-            continue;
-        };
-        let set_aside = entry.path();
-        if !std::fs::symlink_metadata(&set_aside).is_ok_and(|metadata| metadata.is_dir()) {
-            continue;
+            .and_then(|text| text.strip_prefix(LEGACY_SET_ASIDE_PREFIX))
+        {
+            restore_set_aside(paths, name, &entry.path());
         }
-        let target = paths.skills_cli_skills_dir().join(name);
-        let vacant = matches!(
-            std::fs::symlink_metadata(&target),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    }
+}
+
+fn restore_set_aside(paths: &Paths, name: &str, set_aside: &Path) {
+    if !is_plain_name(name) || !is_real_dir(set_aside) {
+        return;
+    }
+    let target = paths.skills_cli_skills_dir().join(name);
+    let vacant = matches!(
+        std::fs::symlink_metadata(&target),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    );
+    if !vacant {
+        return;
+    }
+    if let Err(error) = std::fs::rename(set_aside, &target) {
+        log::warn!(
+            "could not move {} back to {}: {error}",
+            set_aside.display(),
+            target.display()
         );
-        if !vacant {
-            continue;
-        }
-        if let Err(error) = std::fs::rename(&set_aside, &target) {
-            log::warn!(
-                "could not move {} back to {}: {error}",
-                set_aside.display(),
-                target.display()
-            );
-        }
     }
 }

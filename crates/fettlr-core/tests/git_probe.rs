@@ -396,14 +396,74 @@ fn a_reference_starting_with_a_dash_is_refused() {
         return;
     }
     let fixture = SourceFixture::new();
-    let marker = fixture._root.path().join("PWNED");
-    let reference = format!("--upload-pack=touch {}", marker.display());
+    let marker_dir = tempfile::Builder::new()
+        .prefix("fettlr-marker-")
+        .tempdir()
+        .expect("create marker dir");
+    let marker = marker_dir.path().join("PWNED");
+    let reference = format!("--upload-pack=touch$IFS{}", marker.display());
+    run(&["branch", &format!("x/{reference}")], &fixture.origin);
 
     let result = GitProbe.fetch_source(&fixture.url, Some(&reference), &fixture.cache);
 
-    assert!(matches!(result, Err(CoreError::Cli { .. })));
+    match result {
+        Err(CoreError::Cli { command, .. }) => assert_eq!(command, "fettlr: invalid reference"),
+        other => panic!("unexpected result: {other:?}"),
+    }
     assert!(!marker.exists());
-    assert!(!fixture.cache.join("FETCH_HEAD").exists());
+    assert!(!fixture.cache.exists());
+}
+
+#[test]
+fn a_source_url_that_is_not_https_or_file_is_refused_before_git_runs() {
+    if !git_installed() {
+        return;
+    }
+    let root = tempfile::TempDir::new().expect("create temp dir");
+    let cache = root.path().join("cache");
+    let marker = root.path().join("PWNED");
+    for url in [
+        format!("ext::sh -c touch% {}", marker.display()),
+        "ssh://user:tok3n@github.com/a/b.git".to_string(),
+        "git@github.com:a/b.git".to_string(),
+        root.path().join("origin").display().to_string(),
+    ] {
+        let error = GitProbe
+            .fetch_source(&url, None, &cache)
+            .expect_err("refused");
+
+        assert!(!error.to_string().contains(&url), "{error}");
+        assert!(!error.to_string().contains("tok3n"), "{error}");
+    }
+    assert!(!marker.exists());
+    assert!(!cache.exists());
+}
+
+#[test]
+fn a_failure_to_record_the_source_url_never_names_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if !git_installed() {
+        return;
+    }
+    let root = tempfile::TempDir::new().expect("create temp dir");
+    let cache = root.path().join("cache");
+    std::fs::create_dir_all(&cache).expect("create cache");
+    run(&["init", "--quiet", "--bare", "."], &cache);
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o555)).expect("lock cache");
+    let url = "https://user:tok3n@github.com/a/b.git";
+
+    let result = GitProbe.fetch_source(url, None, &cache);
+
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755)).expect("unlock cache");
+    let error = result.expect_err("config cannot be written");
+    match &error {
+        CoreError::Cli { command, .. } => {
+            assert_eq!(command, "git config remote.origin.url <url>")
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+    assert!(!error.to_string().contains("tok3n"), "{error}");
 }
 
 #[test]

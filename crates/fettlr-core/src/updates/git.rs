@@ -82,14 +82,7 @@ impl GitProbe {
     fn list_remote(&self, remote: &str, target: &str, workdir: &Path) -> Result<String, CoreError> {
         let args = ["ls-remote", "--end-of-options", remote, target];
         let listing = self.run_ok(&args, workdir)?;
-        listing
-            .stdout
-            .lines()
-            .next()
-            .and_then(|line| line.split_whitespace().next())
-            .filter(|sha| is_commit_sha(sha))
-            .map(str::to_string)
-            .ok_or_else(|| failed(&args, listing.stdout.clone()))
+        first_commit(&listing.stdout).ok_or_else(|| failed(&args, listing.stdout.clone()))
     }
 
     fn run_ok(&self, args: &[&str], repo: &Path) -> Result<CliOutput, CoreError> {
@@ -119,6 +112,15 @@ fn failed(args: &[&str], stderr: String) -> CoreError {
 
 fn is_commit_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn first_commit(listing: &str) -> Option<String> {
+    listing
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .filter(|sha| is_commit_sha(sha))
+        .map(str::to_string)
 }
 
 fn checked_remote(url: &str, reference: Option<&str>) -> Result<(), CoreError> {
@@ -172,7 +174,24 @@ impl GitProbing for GitProbe {
         workdir: &Path,
     ) -> Result<String, CoreError> {
         checked_remote(url, reference)?;
-        self.list_remote(url, reference.unwrap_or("HEAD"), workdir)
+        let target = reference.unwrap_or("HEAD");
+        let no_repo = format!("--git-dir={}", workdir.join("fettlr-no-git-dir").display());
+        let shown = ["ls-remote", "--end-of-options", "<url>", target];
+        let listing = self
+            .run(
+                &[&no_repo, "ls-remote", "--end-of-options", url, target],
+                workdir,
+            )
+            .map_err(|error| match error {
+                CoreError::Timeout { .. } => CoreError::Timeout {
+                    command: format!("git {}", shown.join(" ")),
+                },
+                other => other,
+            })?;
+        if listing.exit_code != 0 {
+            return Err(failed(&shown, listing.stderr));
+        }
+        first_commit(&listing.stdout).ok_or_else(|| failed(&shown, listing.stdout.clone()))
     }
 
     fn fetch_source(

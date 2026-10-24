@@ -226,7 +226,7 @@ fn marketplace_state(record: &MarketplaceRecord, git: &dyn GitProbing) -> Update
         return UpdateState::Unknown;
     }
     let dir = Path::new(&record.install_location);
-    if !dir.join(".git").exists() && dir.join(GCS_SHA_FILE).exists() {
+    if !dir.join(".git").exists() && std::fs::symlink_metadata(dir.join(GCS_SHA_FILE)).is_ok() {
         return downloaded_marketplace_state(record, dir, git);
     }
     behind_state(git.behind_count(dir))
@@ -242,11 +242,25 @@ fn downloaded_marketplace_state(
     else {
         return UpdateState::Unknown;
     };
+    if !is_owner_and_name(repo) {
+        return UpdateState::Unknown;
+    }
     match git.remote_head(&format!("https://github.com/{repo}"), None, dir) {
         Ok(head) if head.eq_ignore_ascii_case(&installed) => UpdateState::UpToDate,
-        Ok(_) => UpdateState::SourceChanged,
-        Err(_) => UpdateState::Unknown,
+        _ => UpdateState::Unknown,
     }
+}
+
+fn is_owner_and_name(repo: &str) -> bool {
+    let part = |value: &str| {
+        !value.is_empty()
+            && value != "."
+            && value != ".."
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    matches!(repo.split_once('/'), Some((owner, name)) if part(owner) && part(name))
 }
 
 fn skill_state(
@@ -267,11 +281,29 @@ fn skill_state(
 
 pub(crate) const GCS_SHA_FILE: &str = ".gcs-sha";
 
-/// The commit Claude Code records for a marketplace it downloaded instead of cloning.
+/// The commit Claude Code records for a marketplace it downloaded instead of cloning. Only a
+/// small regular file counts: a link or special file in a downloaded folder is never followed.
 pub(crate) fn read_gcs_sha(dir: &Path) -> Option<String> {
-    let raw = std::fs::read_to_string(dir.join(GCS_SHA_FILE)).ok()?;
+    use std::io::Read;
+
+    const MAX_BYTES: u64 = 128;
+    let path = dir.join(GCS_SHA_FILE);
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&path)
+        .ok()?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return None;
+    }
+    let raw = String::from_utf8(bytes).ok()?;
     let sha = raw.trim();
-    is_tree_sha(sha).then(|| sha.to_ascii_lowercase())
+    (matches!(sha.len(), 40 | 64) && sha.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| sha.to_ascii_lowercase())
 }
 
 fn is_tree_sha(value: &str) -> bool {
@@ -400,14 +432,9 @@ fn is_short_sha(value: &str) -> bool {
 
 fn pinned_state(installed: &str, pinned: &str) -> UpdateState {
     if installed.eq_ignore_ascii_case(pinned) {
-        return UpdateState::UpToDate;
-    }
-    match (installed.get(..12), pinned.get(..12)) {
-        (Some(installed), Some(latest)) => UpdateState::UpdateAvailable {
-            installed: installed.to_ascii_lowercase(),
-            latest: latest.to_ascii_lowercase(),
-        },
-        _ => UpdateState::Unknown,
+        UpdateState::UpToDate
+    } else {
+        UpdateState::Unknown
     }
 }
 

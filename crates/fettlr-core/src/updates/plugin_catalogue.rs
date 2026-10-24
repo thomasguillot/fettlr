@@ -163,6 +163,9 @@ struct InstalledPlugin {
 
 fn read_installed_commits(paths: &Paths) -> BTreeMap<String, String> {
     let mut commits = BTreeMap::new();
+    if !paths.installed_plugins_json().exists() {
+        return commits;
+    }
     let Some(installed) = read_json::<InstalledPlugins>(&paths.installed_plugins_json()) else {
         return commits;
     };

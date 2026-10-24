@@ -901,12 +901,9 @@ fn downloaded_marketplace(tree: &TempTree, gcs_sha: Option<&str>) -> Marketplace
     marketplace("official", &dir.display().to_string())
 }
 
-fn remote_head_checker(head: &str) -> UpdateChecker {
-    let git = FakeGitProbe::with_sources([(
-        "https://github.com/acme/official",
-        Box::leak(head.to_string().into_boxed_str()) as &'static str,
-        BTreeMap::new(),
-    )]);
+fn remote_head_checker(head: &'static str) -> UpdateChecker {
+    let git =
+        FakeGitProbe::with_sources([("https://github.com/acme/official", head, BTreeMap::new())]);
     UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
 }
 
@@ -928,12 +925,12 @@ fn a_downloaded_marketplace_matching_the_remote_head_is_up_to_date() {
 }
 
 #[test]
-fn a_downloaded_marketplace_behind_the_remote_head_has_a_source_change() {
+fn a_downloaded_marketplace_that_differs_from_the_remote_head_is_unknown() {
     let tree = TempTree::new();
     let record = downloaded_marketplace(&tree, Some(OLD_SHA));
     assert_eq!(
         state_of(&remote_head_checker(NEW_SHA), record),
-        UpdateState::SourceChanged
+        UpdateState::Unknown
     );
 }
 
@@ -1038,7 +1035,7 @@ fn plugin_state_of(catalogue: &PluginCatalogue, plugin: PluginRecord) -> UpdateS
 }
 
 #[test]
-fn a_pinned_plugin_compares_its_installed_commit_with_the_pin() {
+fn a_pinned_plugin_is_current_when_its_installed_commit_equals_the_pin_and_unknown_otherwise() {
     let user = serde_json::json!({"scope": "user"});
     let installed =
         serde_json::json!([{"scope": "user", "version": "7.0.0", "gitCommitSha": PINNED}]);
@@ -1051,10 +1048,7 @@ fn a_pinned_plugin_compares_its_installed_commit_with_the_pin() {
     );
     assert_eq!(
         plugin_state_of(&pinned_tree(OTHER_PIN, installed), scoped_plugin(user)),
-        UpdateState::UpdateAvailable {
-            installed: PINNED[..12].to_string(),
-            latest: OTHER_PIN[..12].to_string()
-        }
+        UpdateState::Unknown
     );
 }
 
@@ -1092,10 +1086,10 @@ fn a_project_scope_pin_is_matched_by_project_path() {
         plugin_state_of(&catalogue, project("/b")),
         UpdateState::UpToDate
     );
-    assert!(matches!(
+    assert_eq!(
         plugin_state_of(&catalogue, project("/a")),
-        UpdateState::UpdateAvailable { .. }
-    ));
+        UpdateState::Unknown
+    );
     assert_eq!(
         plugin_state_of(&catalogue, project("/c")),
         UpdateState::Unknown
@@ -1103,7 +1097,7 @@ fn a_project_scope_pin_is_matched_by_project_path() {
 }
 
 #[test]
-fn a_semver_pin_is_untouched_by_the_installed_commit() {
+fn a_short_sha_install_still_compares_by_prefix() {
     let catalogue = pinned_tree(PINNED, serde_json::json!([]));
     let mut sha_installed = scoped_plugin(serde_json::json!({"scope": "user"}));
     sha_installed.version = PINNED[..12].to_string();
@@ -1120,36 +1114,154 @@ impl log::Log for Recorder {
         true
     }
     fn log(&self, record: &log::Record) {
-        let text = record.args().to_string();
-        if text.contains("installed_plugins.json") {
-            self.0.lock().unwrap().push(text);
-        }
+        self.0.lock().unwrap().push(record.args().to_string());
     }
     fn flush(&self) {}
 }
 
+static RECORDER: Recorder = Recorder(Mutex::new(Vec::new()));
+
+fn install_recorder() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        log::set_logger(&RECORDER).expect("install logger");
+        log::set_max_level(log::LevelFilter::Warn);
+    });
+}
+
+fn warnings_naming(path: &Path) -> usize {
+    let own = path.display().to_string();
+    RECORDER
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|message| message.contains(&own))
+        .count()
+}
+
 #[test]
-fn an_unparseable_installed_plugins_file_warns_once_and_leaves_pins_unknown() {
-    static RECORDER: Recorder = Recorder(Mutex::new(Vec::new()));
-    log::set_logger(&RECORDER).expect("install logger");
-    log::set_max_level(log::LevelFilter::Warn);
+fn an_unparseable_installed_plugins_file_warns_once_per_check_and_leaves_pins_unknown() {
+    install_recorder();
     let tree = TempTree::new();
     tree.write_marketplace(
         "m",
         serde_json::json!({"source": "github", "repo": "acme/m"}),
-        serde_json::json!([{
-            "name": "sp",
-            "source": {"source": "url", "url": "https://github.com/obra/sp.git", "sha": PINNED}
-        }]),
+        serde_json::json!([
+            {"name": "sp", "source": {"source": "url", "url": "https://github.com/obra/sp.git", "sha": PINNED}},
+            {"name": "tp", "source": {"source": "url", "url": "https://github.com/obra/tp.git", "sha": PINNED}}
+        ]),
     );
-    tree.write("{ not json", &tree.paths.installed_plugins_json());
+    let file = tree.paths.installed_plugins_json();
+    tree.write("{ not json", &file);
     let catalogue = fettlr_core::read_plugin_catalogue(&tree.paths);
+    let plugins = vec![
+        scoped_plugin(serde_json::json!({"scope": "user"})),
+        scoped_plugin(serde_json::json!({"id": "tp@m", "scope": "user"})),
+    ];
+    let report = default_checker().check(&[], &plugins, &catalogue, &[], &[]);
+    assert_eq!(report.plugins["sp@m#user"], UpdateState::Unknown);
+    assert_eq!(report.plugins["tp@m#user"], UpdateState::Unknown);
+    assert_eq!(warnings_naming(&file), 1);
+}
+
+#[test]
+fn a_missing_installed_plugins_file_does_not_warn() {
+    let tree = TempTree::new();
+    tree.write_marketplace(
+        "m",
+        serde_json::json!({"source": "github", "repo": "acme/m"}),
+        serde_json::json!([]),
+    );
+    install_recorder();
+    let catalogue = fettlr_core::read_plugin_catalogue(&tree.paths);
+    assert!(catalogue.installed_commit("sp@m#user").is_none());
+    assert_eq!(warnings_naming(&tree.paths.installed_plugins_json()), 0);
+}
+
+#[test]
+fn a_sha_256_marketplace_commit_equal_to_the_head_is_up_to_date_only_when_equal() {
+    const LONG: &str = "58267944f92187b7d6a1c822165c96c81c86480658267944f92187b7d6a1c822";
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(LONG));
     assert_eq!(
-        plugin_state_of(
-            &catalogue,
-            scoped_plugin(serde_json::json!({"scope": "user"}))
-        ),
+        state_of(&remote_head_checker(NEW_SHA), record),
         UpdateState::Unknown
     );
-    assert_eq!(RECORDER.0.lock().unwrap().len(), 1);
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(LONG));
+    assert_eq!(
+        state_of(&remote_head_checker(LONG), record),
+        UpdateState::UpToDate
+    );
+}
+
+#[test]
+fn a_linked_oversize_or_special_sha_file_is_unknown() {
+    let linked = TempTree::new();
+    let record = downloaded_marketplace(&linked, None);
+    let dir = std::path::PathBuf::from(&record.install_location);
+    let real = linked.write(NEW_SHA, &linked.root().join("real-sha"));
+    std::os::unix::fs::symlink(real, dir.join(".gcs-sha")).unwrap();
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::Unknown
+    );
+
+    let big = TempTree::new();
+    let padded = format!("{NEW_SHA}{}", " ".repeat(4096));
+    let record = downloaded_marketplace(&big, Some(&padded));
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::Unknown
+    );
+
+    let fifo = TempTree::new();
+    let record = downloaded_marketplace(&fifo, None);
+    let path = std::ffi::CString::new(
+        std::path::Path::new(&record.install_location)
+            .join(".gcs-sha")
+            .to_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::Unknown
+    );
+}
+
+#[test]
+fn only_an_owner_and_name_repo_is_turned_into_a_url() {
+    for (repo, ok) in [
+        ("a/b", true),
+        ("a.b_c-d/e.f", true),
+        ("a/b?x", false),
+        ("a/b#x", false),
+        ("a b/c", false),
+        ("a/b\n", false),
+        ("../b", false),
+        ("a/..", false),
+        ("./b", false),
+        ("a", false),
+        ("a/b/c", false),
+        ("", false),
+    ] {
+        let tree = TempTree::new();
+        let mut record = downloaded_marketplace(&tree, Some(NEW_SHA));
+        record.repo = Some(repo.to_string());
+        let git = FakeGitProbe::with_sources([(
+            Box::leak(format!("https://github.com/{repo}").into_boxed_str()) as &'static str,
+            NEW_SHA,
+            BTreeMap::new(),
+        )]);
+        let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
+        let expected = if ok {
+            UpdateState::UpToDate
+        } else {
+            UpdateState::Unknown
+        };
+        assert_eq!(state_of(&checker, record), expected, "{repo:?}");
+    }
 }

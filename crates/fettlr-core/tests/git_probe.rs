@@ -513,3 +513,23 @@ fn export_folder_treats_the_folder_literally() {
         None
     );
 }
+
+#[test]
+fn remote_head_lists_the_head_without_fetching_and_refuses_a_dash_reference() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = SourceFixture::new();
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+
+    let head = GitProbe
+        .remote_head(&fixture.url, None, workdir.path())
+        .expect("remote head");
+    assert_eq!(head, fixture.origin_rev("HEAD"));
+    assert!(!fixture.cache.exists());
+
+    match GitProbe.remote_head(&fixture.url, Some("--x"), workdir.path()) {
+        Err(CoreError::Cli { command, .. }) => assert_eq!(command, "fettlr: invalid reference"),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}

@@ -6,6 +6,8 @@ use serde_json::Value;
 
 use crate::paths::Paths;
 
+use super::checker::read_gcs_sha;
+
 /// What the marketplaces on disk say is the current version of a plugin.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogueVersion {
@@ -103,6 +105,11 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             record.source.get("source").and_then(Value::as_str),
             Some("github" | "git")
         );
+        let downloaded_commit = if git_hosted && !dir.join(".git").exists() {
+            read_gcs_sha(&dir)
+        } else {
+            None
+        };
         for raw in manifest.plugins {
             let entry = match serde_json::from_value::<MarketplaceEntry>(raw.clone()) {
                 Ok(entry) => entry,
@@ -119,7 +126,10 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             if entry.name.is_empty() || entries.contains_key(&id) {
                 continue;
             }
-            entries.insert(id, classify(&entry, &dir, git_hosted));
+            entries.insert(
+                id,
+                classify(&entry, &dir, git_hosted, downloaded_commit.as_deref()),
+            );
         }
     }
     PluginCatalogue { entries }
@@ -150,6 +160,7 @@ fn classify(
     entry: &MarketplaceEntry,
     marketplace_dir: &Path,
     git_hosted: bool,
+    downloaded_commit: Option<&str>,
 ) -> CatalogueVersion {
     let entry_version = non_empty(entry.version.as_deref());
     match &entry.source {
@@ -171,9 +182,12 @@ fn classify(
                     }
                 })
                 .and_then(|manifest| non_empty(manifest.version.as_deref()));
-            manifest_version
-                .or(entry_version)
-                .map_or(CatalogueVersion::Untracked, CatalogueVersion::Version)
+            match manifest_version.or(entry_version) {
+                Some(version) => CatalogueVersion::Version(version),
+                None => downloaded_commit.map_or(CatalogueVersion::Untracked, |sha| {
+                    CatalogueVersion::Commit(sha.to_string())
+                }),
+            }
         }
         Value::Object(source) => {
             let kind = source.get("source").and_then(Value::as_str);

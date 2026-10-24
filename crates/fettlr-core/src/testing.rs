@@ -328,6 +328,21 @@ impl GitProbing for FakeGitProbe {
         Ok(())
     }
 
+    fn remote_head(
+        &self,
+        url: &str,
+        _reference: Option<&str>,
+        _workdir: &Path,
+    ) -> Result<String, CoreError> {
+        if self.unreachable.contains(url) {
+            return Err(Self::unreachable_error());
+        }
+        self.sources
+            .get(url)
+            .map(|(commit, _)| commit.clone())
+            .ok_or_else(Self::unreachable_error)
+    }
+
     fn fetch_source(
         &self,
         url: &str,

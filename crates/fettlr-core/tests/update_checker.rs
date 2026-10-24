@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient};
+use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient, TempTree};
 use fettlr_core::{
     CatalogueVersion, CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer,
     McpServerConfig, PluginCatalogue, PluginRecord, Provenance, Scope, Skill, SkillsCliOrigin,
@@ -122,6 +122,17 @@ impl GitProbing for CountingGitProbe {
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
         Ok(())
+    }
+
+    fn remote_head(
+        &self,
+        _url: &str,
+        _reference: Option<&str>,
+        _workdir: &Path,
+    ) -> Result<String, CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
     }
 
     fn fetch_source(
@@ -875,4 +886,115 @@ fn an_account_skill_is_never_checked() {
 
     assert_eq!(report.skills["user/impeccable"], UpdateState::Unknown);
     assert!(git.fetched_references().is_empty());
+}
+
+const OLD_SHA: &str = "1111111111111111111111111111111111111111";
+const NEW_SHA: &str = "58267944f92187b7d6a1c822165c96c81c864806";
+
+fn downloaded_marketplace(tree: &TempTree, gcs_sha: Option<&str>) -> MarketplaceRecord {
+    let dir = tree.root().join("marketplaces").join("official");
+    if let Some(contents) = gcs_sha {
+        tree.write(contents, &dir.join(".gcs-sha"));
+    } else {
+        tree.make_directory(&dir);
+    }
+    marketplace("official", &dir.display().to_string())
+}
+
+fn remote_head_checker(head: &str) -> UpdateChecker {
+    let git = FakeGitProbe::with_sources([(
+        "https://github.com/acme/official",
+        Box::leak(head.to_string().into_boxed_str()) as &'static str,
+        BTreeMap::new(),
+    )]);
+    UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
+}
+
+fn state_of(checker: &UpdateChecker, record: MarketplaceRecord) -> UpdateState {
+    checker
+        .check(&[record], &[], &PluginCatalogue::default(), &[], &[])
+        .marketplaces["official"]
+        .clone()
+}
+
+#[test]
+fn a_downloaded_marketplace_matching_the_remote_head_is_up_to_date() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(NEW_SHA));
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::UpToDate
+    );
+}
+
+#[test]
+fn a_downloaded_marketplace_behind_the_remote_head_has_a_source_change() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(OLD_SHA));
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::SourceChanged
+    );
+}
+
+#[test]
+fn a_downloaded_marketplace_reads_its_sha_through_whitespace_and_case() {
+    let tree = TempTree::new();
+    let padded = format!("  {}\n", NEW_SHA.to_ascii_uppercase());
+    let record = downloaded_marketplace(&tree, Some(&padded));
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::UpToDate
+    );
+}
+
+#[test]
+fn a_malformed_sha_file_leaves_the_marketplace_unknown() {
+    for contents in [
+        &NEW_SHA[..39],
+        "",
+        "zz267944f92187b7d6a1c822165c96c81c864806",
+        "   ",
+    ] {
+        let tree = TempTree::new();
+        let record = downloaded_marketplace(&tree, Some(contents));
+        assert_eq!(
+            state_of(&remote_head_checker(NEW_SHA), record),
+            UpdateState::Unknown,
+            "contents {contents:?}"
+        );
+    }
+}
+
+#[test]
+fn an_unreachable_remote_leaves_a_downloaded_marketplace_unknown() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(OLD_SHA));
+    assert_eq!(state_of(&default_checker(), record), UpdateState::Unknown);
+}
+
+#[test]
+fn a_real_clone_ignores_the_sha_file() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(OLD_SHA));
+    tree.make_directory(&tree.root().join("marketplaces/official/.git"));
+    let git = FakeGitProbe::with_counts([(record.install_location.clone(), 2)]);
+    let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
+    assert_eq!(
+        state_of(&checker, record),
+        UpdateState::Behind { commits: 2 }
+    );
+}
+
+#[test]
+fn only_github_sources_are_checked_by_sha_file() {
+    let tree = TempTree::new();
+    let mut record = downloaded_marketplace(&tree, Some(OLD_SHA));
+    record.source = "git".to_string();
+    record.repo = None;
+    record.url = Some("https://example.com/x.git".to_string());
+    assert_eq!(
+        state_of(&remote_head_checker(NEW_SHA), record),
+        UpdateState::Unknown
+    );
 }

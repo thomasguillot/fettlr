@@ -322,3 +322,47 @@ fn a_missing_install_location_falls_back_to_the_marketplaces_dir() {
         version("1.0.0")
     );
 }
+
+const GCS_SHA: &str = "58267944f92187b7d6a1c822165c96c81c864806";
+
+#[test]
+fn a_versionless_relative_plugin_tracks_the_downloaded_marketplace_commit() {
+    let tree = TempTree::new();
+    let dir = tree.write_marketplace(
+        "m",
+        github(),
+        json!([
+            {"name": "bare", "source": "./plugins/bare"},
+            {"name": "versioned", "source": "./plugins/versioned"}
+        ]),
+    );
+    tree.write(&format!("{GCS_SHA}\n"), &dir.join(".gcs-sha"));
+    tree.write_plugin_manifest(&dir, "./plugins/bare", None);
+    tree.write_plugin_manifest(&dir, "./plugins/versioned", Some("2.0.0"));
+    let catalogue = read_plugin_catalogue(&tree.paths);
+    assert_eq!(
+        catalogue.get("bare@m"),
+        Some(&CatalogueVersion::Commit(GCS_SHA.into()))
+    );
+    assert_eq!(catalogue.get("versioned@m").cloned(), version("2.0.0"));
+}
+
+#[test]
+fn a_malformed_sha_file_or_a_real_clone_leaves_a_versionless_relative_plugin_untracked() {
+    for (contents, clone) in [(&GCS_SHA[..39], false), (GCS_SHA, true)] {
+        let tree = TempTree::new();
+        let dir = tree.write_marketplace(
+            "m",
+            github(),
+            json!([{"name": "bare", "source": "./plugins/bare"}]),
+        );
+        tree.write(contents, &dir.join(".gcs-sha"));
+        if clone {
+            tree.make_directory(&dir.join(".git"));
+        }
+        assert_eq!(
+            read_plugin_catalogue(&tree.paths).get("bare@m"),
+            Some(&CatalogueVersion::Untracked)
+        );
+    }
+}

@@ -225,7 +225,28 @@ fn marketplace_state(record: &MarketplaceRecord, git: &dyn GitProbing) -> Update
     if record.install_location.is_empty() || !matches!(record.source.as_str(), "github" | "git") {
         return UpdateState::Unknown;
     }
-    behind_state(git.behind_count(Path::new(&record.install_location)))
+    let dir = Path::new(&record.install_location);
+    if !dir.join(".git").exists() && dir.join(GCS_SHA_FILE).exists() {
+        return downloaded_marketplace_state(record, dir, git);
+    }
+    behind_state(git.behind_count(dir))
+}
+
+fn downloaded_marketplace_state(
+    record: &MarketplaceRecord,
+    dir: &Path,
+    git: &dyn GitProbing,
+) -> UpdateState {
+    let (Some(installed), "github", Some(repo)) =
+        (read_gcs_sha(dir), record.source.as_str(), &record.repo)
+    else {
+        return UpdateState::Unknown;
+    };
+    match git.remote_head(&format!("https://github.com/{repo}"), None, dir) {
+        Ok(head) if head.eq_ignore_ascii_case(&installed) => UpdateState::UpToDate,
+        Ok(_) => UpdateState::SourceChanged,
+        Err(_) => UpdateState::Unknown,
+    }
 }
 
 fn skill_state(
@@ -242,6 +263,15 @@ fn skill_state(
         },
         _ => UpdateState::Unknown,
     }
+}
+
+pub(crate) const GCS_SHA_FILE: &str = ".gcs-sha";
+
+/// The commit Claude Code records for a marketplace it downloaded instead of cloning.
+pub(crate) fn read_gcs_sha(dir: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(dir.join(GCS_SHA_FILE)).ok()?;
+    let sha = raw.trim();
+    is_tree_sha(sha).then(|| sha.to_ascii_lowercase())
 }
 
 fn is_tree_sha(value: &str) -> bool {

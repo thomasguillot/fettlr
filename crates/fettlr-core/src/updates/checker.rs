@@ -265,7 +265,9 @@ fn source_state(
         return UpdateState::Unknown;
     }
 
-    let repo = skill_source_repo(cache_root, origin);
+    let Some(repo) = skill_source_repo(cache_root, origin) else {
+        return UpdateState::Unknown;
+    };
     let slot = Arc::clone(
         heads
             .lock()
@@ -290,15 +292,17 @@ fn source_state(
     }
 }
 
-/// The cache repository for one `(source, reference)` pair under `cache_root`. The check and the
-/// update both go through this so they share one fetch.
-pub(crate) fn skill_source_repo(cache_root: &Path, origin: &SkillsCliOrigin) -> PathBuf {
+/// The cache repository for one `(source url, reference)` pair under `cache_root`, or `None` when
+/// the source names no usable directory. The check and the update both go through this so they
+/// share one fetch. The name is lowercased for case-insensitive volumes and carries a hash of the
+/// raw url and reference so keys the sanitizer folds together stay apart.
+pub(crate) fn skill_source_repo(cache_root: &Path, origin: &SkillsCliOrigin) -> Option<PathBuf> {
     let sanitize = |value: &str| -> String {
         value
             .chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                    c
+                    c.to_ascii_lowercase()
                 } else {
                     '_'
                 }
@@ -306,11 +310,23 @@ pub(crate) fn skill_source_repo(cache_root: &Path, origin: &SkillsCliOrigin) -> 
             .collect()
     };
     let mut key = sanitize(&origin.source);
+    if key.chars().all(|c| c == '.') {
+        return None;
+    }
     if let Some(reference) = &origin.reference {
         key.push('@');
         key.push_str(&sanitize(reference));
     }
-    cache_root.join(key)
+    let mut raw = origin.source_url.clone().unwrap_or_default().into_bytes();
+    raw.push(0);
+    raw.extend_from_slice(origin.reference.as_deref().unwrap_or("").as_bytes());
+    Some(cache_root.join(format!("{key}-{:08x}", fnv1a(&raw))))
+}
+
+fn fnv1a(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 fn behind_state(result: Result<u32, CoreError>) -> UpdateState {
@@ -439,4 +455,64 @@ fn registry_lookup_with_timeout(
             command: "registry lookup".to_string(),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn origin(source: &str, url: &str, reference: Option<&str>) -> SkillsCliOrigin {
+        SkillsCliOrigin {
+            source: source.to_string(),
+            source_type: "github".to_string(),
+            source_url: Some(url.to_string()),
+            reference: reference.map(str::to_string),
+            folder: "skills/a".to_string(),
+            folder_hash: "0".repeat(40),
+        }
+    }
+
+    #[test]
+    fn a_source_key_of_only_dots_or_empty_has_no_cache_repo() {
+        let root = Path::new("/cache/skill-sources");
+        for source in ["", ".", ".."] {
+            assert_eq!(
+                skill_source_repo(root, &origin(source, "https://x/y.git", None)),
+                None
+            );
+        }
+        let inside = skill_source_repo(root, &origin("../x", "https://x/y.git", None))
+            .expect("a repo for ../x");
+        assert!(inside.starts_with(root));
+    }
+
+    #[test]
+    fn the_cache_repo_name_is_stable_and_separates_url_and_reference() {
+        let root = Path::new("/cache/skill-sources");
+        let url = "https://github.com/emilkowalski/skills.git";
+        assert_eq!(
+            skill_source_repo(root, &origin("emilkowalski/skills", url, None)),
+            Some(root.join("emilkowalski_skills-64c61f24"))
+        );
+
+        let slash = skill_source_repo(root, &origin("o/r", url, Some("feature/x"))).unwrap();
+        let underscore = skill_source_repo(root, &origin("o/r", url, Some("feature_x"))).unwrap();
+        assert_ne!(slash, underscore);
+
+        let upper = skill_source_repo(
+            root,
+            &origin("Owner/skills", "https://github.com/Owner/skills.git", None),
+        )
+        .unwrap();
+        let lower = skill_source_repo(
+            root,
+            &origin("owner/skills", "https://github.com/owner/skills.git", None),
+        )
+        .unwrap();
+        assert_ne!(upper, lower);
+
+        for path in [&slash, &underscore, &upper, &lower] {
+            assert!(path.starts_with(root));
+        }
+    }
 }

@@ -815,3 +815,20 @@ fn without_a_source_cache_skills_cli_skills_are_unknown() {
     assert_eq!(report.skills["user/motion"], UpdateState::Unknown);
     assert_eq!(git.fetch_count(EMIL_URL), 0);
 }
+
+#[test]
+fn a_skill_with_a_reference_fetches_that_reference() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/motion", OLD_TREE)]),
+    )]));
+    let checker = source_checker(git.clone());
+    let mut origin = cli_origin("emilkowalski/skills", "skills/motion", OLD_TREE);
+    origin.reference = Some("next".to_string());
+
+    let report = check_skills(&checker, &[cli_skill_with("motion", origin)]);
+
+    assert_eq!(report.skills["user/motion"], UpdateState::UpToDate);
+    assert_eq!(git.fetched_references(), vec![Some("next".to_string())]);
+}

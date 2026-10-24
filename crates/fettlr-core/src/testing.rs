@@ -192,6 +192,7 @@ pub struct FakeGitProbe {
     unreachable: HashSet<String>,
     fetches: Mutex<HashMap<String, usize>>,
     exported: Mutex<Vec<(String, PathBuf)>>,
+    references: Mutex<Vec<Option<String>>>,
 }
 
 impl FakeGitProbe {
@@ -204,6 +205,7 @@ impl FakeGitProbe {
             unreachable: HashSet::new(),
             fetches: Mutex::new(HashMap::new()),
             exported: Mutex::new(Vec::new()),
+            references: Mutex::new(Vec::new()),
         }
     }
 
@@ -288,6 +290,10 @@ impl FakeGitProbe {
             .unwrap_or(0)
     }
 
+    pub fn fetched_references(&self) -> Vec<Option<String>> {
+        self.references.lock().expect("lock poisoned").clone()
+    }
+
     pub fn exports(&self) -> Vec<(String, PathBuf)> {
         self.exported.lock().expect("lock poisoned").clone()
     }
@@ -325,9 +331,13 @@ impl GitProbing for FakeGitProbe {
     fn fetch_source(
         &self,
         url: &str,
-        _reference: Option<&str>,
+        reference: Option<&str>,
         _cache_repo: &Path,
     ) -> Result<String, CoreError> {
+        self.references
+            .lock()
+            .expect("lock poisoned")
+            .push(reference.map(str::to_string));
         *self
             .fetches
             .lock()

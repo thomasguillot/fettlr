@@ -1,7 +1,9 @@
+mod account;
 mod model;
 mod skills_cli;
 mod store;
 
+pub(crate) use account::account_skills;
 pub use model::{Provenance, Skill};
 pub use skills_cli::{
     SkillsCliOrigin, SkillsLock, read_skills_lock, record_skill_update, recover_interrupted_swaps,

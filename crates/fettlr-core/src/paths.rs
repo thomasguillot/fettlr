@@ -13,6 +13,10 @@ impl Paths {
         self.claude_dir.join("skills")
     }
 
+    pub fn account_skills_dir(&self) -> PathBuf {
+        self.skills_dir().join("synced")
+    }
+
     pub fn agents_dir(&self) -> PathBuf {
         self.claude_dir.join("agents")
     }
@@ -122,6 +126,14 @@ mod tests {
         assert_eq!(
             fake_paths().known_marketplaces_json(),
             PathBuf::from("/tmp/fake-home/.claude/plugins/known_marketplaces.json")
+        );
+    }
+
+    #[test]
+    fn account_skills_dir_hangs_off_skills_dir() {
+        assert_eq!(
+            fake_paths().account_skills_dir(),
+            PathBuf::from("/tmp/fake-home/.claude/skills/synced")
         );
     }
 

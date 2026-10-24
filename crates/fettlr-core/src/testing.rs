@@ -546,6 +546,29 @@ impl TempTree {
         link
     }
 
+    pub fn write_account_manifest(
+        &self,
+        bucket: &str,
+        last_updated: u64,
+        skills: serde_json::Value,
+    ) -> PathBuf {
+        let root = self.paths.account_skills_dir();
+        let folder = self.make_directory(&root.join(bucket));
+        let manifest = serde_json::json!({"lastUpdated": last_updated, "skills": skills});
+        self.write(
+            &serde_json::to_string_pretty(&manifest).expect("serialize manifest"),
+            &folder.join("manifest.json"),
+        );
+        self.write("", &root.join(format!(".bucket-{bucket}")));
+        folder
+    }
+
+    pub fn make_account_skill(&self, bucket: &str, name: &str, markdown: &str) -> PathBuf {
+        let folder = self.paths.account_skills_dir().join(bucket).join(name);
+        self.write(markdown, &folder.join("SKILL.md"));
+        folder
+    }
+
     pub fn write_claude_json_raw(&self, raw: &str) {
         self.write(raw, &self.paths.claude_json);
     }

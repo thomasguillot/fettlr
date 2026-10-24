@@ -11,6 +11,7 @@ pub enum Provenance {
     GitClone,
     Plugin { plugin_id: String },
     SkillsCli(SkillsCliOrigin),
+    Account { updated_at: String },
 }
 
 #[derive(Clone, Debug, Serialize)]

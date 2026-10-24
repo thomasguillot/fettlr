@@ -287,6 +287,34 @@ mod refresh {
     }
 
     #[test]
+    fn refresh_lists_account_skills_beside_user_skills() {
+        let tree = TempTree::new();
+        tree.make_skill(
+            "demo",
+            &tree.user_skills_dir(),
+            Some(&TempTree::skill_markdown("demo", "A demo skill")),
+            false,
+        );
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let fettlr = fettlr_with(Arc::new(ScriptedCliRunner::new()), &tree);
+
+        let snapshot = fettlr.refresh().expect("refresh succeeds");
+
+        let mut ids: Vec<_> = snapshot.skills.iter().map(|s| s.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["account:impeccable", "user/demo"]);
+    }
+
+    #[test]
     fn merges_plugin_provided_skills_into_the_skills_list() {
         let tree = TempTree::new();
         tree.make_skill(
@@ -1062,6 +1090,42 @@ mod subagents {
         let after_restore = fettlr.restore_subagent(&parked).expect("restore");
         assert_eq!(after_restore.subagents.len(), 1);
         assert!(after_restore.parked_subagents.is_empty());
+    }
+
+    #[test]
+    fn an_account_skill_cannot_be_parked_or_deleted() {
+        let tree = TempTree::new();
+        tree.write_claude_json(json!({ "projects": {} }));
+        tree.write_account_manifest(
+            "b1",
+            1,
+            json!([{"name": "impeccable", "source": "plugin", "updatedAt": "2026-10-24T12:57:30Z"}]),
+        );
+        let folder = tree.make_account_skill(
+            "b1",
+            "impeccable",
+            &TempTree::skill_markdown("impeccable", "Design skill"),
+        );
+        let trasher = Arc::new(FakeTrasher::new());
+        let fettlr = fettlr_with_trasher(&tree, trasher.clone());
+        let snapshot = fettlr.refresh().expect("refresh");
+        let skill = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.id == "account:impeccable")
+            .expect("listed")
+            .clone();
+
+        assert!(matches!(
+            fettlr.park_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+        assert!(matches!(
+            fettlr.delete_skill(&skill),
+            Err(CoreError::SkillManagedByAccount { .. })
+        ));
+        assert!(folder.exists());
+        assert!(trasher.trashed().is_empty());
     }
 
     #[test]

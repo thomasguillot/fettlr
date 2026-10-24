@@ -433,6 +433,10 @@ pub enum CoreError {
     )]
     SkillManagedByPlugin { name: String, plugin_id: String },
     #[error(
+        "the skill {name} is synced from your Claude account; change it in Claude settings instead"
+    )]
+    SkillManagedByAccount { name: String },
+    #[error(
         "the subagent {name} belongs to the plugin {plugin_id}; change it from the plugin instead"
     )]
     SubagentManagedByPlugin { name: String, plugin_id: String },

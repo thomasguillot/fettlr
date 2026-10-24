@@ -167,6 +167,7 @@ impl Fettlr {
         let (from_plugins, plugin_skill_warnings) = plugin_skills(&plugins);
         skills.extend(from_plugins);
         warnings.extend(plugin_skill_warnings);
+        skills.extend(discovered.account_skills);
 
         let parked_subagents = match self.subagent_store.parked() {
             Ok(records) => records,
@@ -289,7 +290,7 @@ impl Fettlr {
 
     pub fn park_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
         self.mutate(|| {
-            plugin_owned(skill)?;
+            externally_owned(skill)?;
             self.skill_store.park(skill).map(|_| ())
         })
     }
@@ -300,7 +301,7 @@ impl Fettlr {
 
     pub fn delete_skill(&self, skill: &Skill) -> Result<Snapshot, CoreError> {
         self.mutate(|| {
-            plugin_owned(skill)?;
+            externally_owned(skill)?;
             self.skill_store.delete(skill)
         })
     }
@@ -630,15 +631,19 @@ enum StaleItem {
 }
 
 // A plugin's skill folder belongs to the plugin's own install, so moving or trashing it corrupts
-// the plugin. The window never offers either action for one; this refuses it at the core anyway.
-fn plugin_owned(skill: &Skill) -> Result<(), CoreError> {
-    if let Provenance::Plugin { plugin_id } = &skill.provenance {
-        return Err(CoreError::SkillManagedByPlugin {
+// the plugin, and an account skill's folder is rewritten by every sync. The window never offers
+// either action for one; this refuses it at the core anyway.
+fn externally_owned(skill: &Skill) -> Result<(), CoreError> {
+    match &skill.provenance {
+        Provenance::Plugin { plugin_id } => Err(CoreError::SkillManagedByPlugin {
             name: skill.name.clone(),
             plugin_id: plugin_id.clone(),
-        });
+        }),
+        Provenance::Account { .. } => Err(CoreError::SkillManagedByAccount {
+            name: skill.name.clone(),
+        }),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 fn plugin_owned_subagent(subagent: &Subagent) -> Result<(), CoreError> {

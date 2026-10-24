@@ -130,6 +130,10 @@ pub enum UiProvenance {
     SkillsCli {
         source: String,
     },
+    Account {
+        #[serde(rename = "updatedAt")]
+        updated_at: String,
+    },
 }
 
 impl From<&Provenance> for UiProvenance {
@@ -142,6 +146,9 @@ impl From<&Provenance> for UiProvenance {
             },
             Provenance::SkillsCli(origin) => UiProvenance::SkillsCli {
                 source: mask_url(&origin.source).0,
+            },
+            Provenance::Account { updated_at } => UiProvenance::Account {
+                updated_at: updated_at.clone(),
             },
         }
     }
@@ -1290,6 +1297,17 @@ pub struct UiPrefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_account_provenance_serialises_with_its_update_time() {
+        let ui = UiProvenance::from(&Provenance::Account {
+            updated_at: "2026-10-24T12:57:30.617177Z".to_string(),
+        });
+        assert_eq!(
+            serde_json::to_value(&ui).expect("serialize"),
+            serde_json::json!({"kind": "account", "updatedAt": "2026-10-24T12:57:30.617177Z"})
+        );
+    }
 
     fn config(json: serde_json::Value) -> McpServerConfig {
         serde_json::from_value(json).expect("decode config")

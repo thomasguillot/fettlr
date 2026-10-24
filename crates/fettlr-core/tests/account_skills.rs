@@ -473,6 +473,17 @@ fn plugin_copy(tree: &TempTree, markdown: &str) -> Skill {
     )
 }
 
+fn git_copy(tree: &TempTree, markdown: &str) -> Skill {
+    local(
+        tree,
+        "clone",
+        "git/impeccable",
+        Scope::User,
+        Provenance::GitClone,
+        markdown,
+    )
+}
+
 fn user_copy(tree: &TempTree, markdown: &str) -> Skill {
     local(
         tree,
@@ -537,14 +548,6 @@ fn skills_cli_copy(tree: &TempTree, markdown: &str) -> Skill {
         }),
         path: link,
     }
-}
-
-fn a_day_old(skill: &Skill) {
-    let now = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_secs();
-    set_mtime(&skill.path, now - 86_400);
 }
 
 fn future_updated_at() -> String {
@@ -666,25 +669,25 @@ fn the_edit_window_is_strictly_longer_than_five_minutes() {
 fn the_newer_of_two_unversioned_copies_is_chosen() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
-    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    let git = git_copy(&tree, &markdown(None, true, "p"));
     let user = user_copy(&tree, &markdown(None, true, "u"));
-    set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
+    set_mtime(&git.path, UPLOADED as u64 + 1_000);
     set_mtime(&user.path, UPLOADED as u64 + 2_000);
 
-    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &user, None));
+    assert_eq!(judge(&[&a, &user, &git]), behind(&a, &user, None));
 }
 
 #[test]
 fn equally_new_unversioned_copies_go_to_the_smaller_id() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
-    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    let git = git_copy(&tree, &markdown(None, true, "p"));
     let user = user_copy(&tree, &markdown(None, true, "u"));
-    set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
+    set_mtime(&git.path, UPLOADED as u64 + 1_000);
     set_mtime(&user.path, UPLOADED as u64 + 1_000);
 
-    assert!(plugin.id < user.id);
-    assert_eq!(judge(&[&a, &plugin, &user]), behind(&a, &plugin, None));
+    assert!(git.id < user.id);
+    assert_eq!(judge(&[&a, &git, &user]), behind(&a, &git, None));
 }
 
 #[test]
@@ -823,7 +826,6 @@ fn an_unversioned_skills_cli_copy_supersedes_an_older_upload() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
     let c = skills_cli_copy(&tree, &markdown(None, true, "new"));
-    a_day_old(&c);
 
     assert_eq!(judge(&[&a, &c]), behind(&a, &c, None));
 }
@@ -833,7 +835,6 @@ fn an_unversioned_plugin_copy_supersedes_an_older_upload() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
     let c = plugin_copy(&tree, &markdown(None, true, "new"));
-    a_day_old(&c);
 
     assert_eq!(judge(&[&a, &c]), behind(&a, &c, None));
 }
@@ -843,7 +844,6 @@ fn an_unversioned_local_copy_still_needs_a_later_edit() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
     let c = user_copy(&tree, &markdown(None, true, "new"));
-    a_day_old(&c);
 
     assert!(judge(&[&a, &c]).is_empty());
 }
@@ -853,7 +853,6 @@ fn a_stale_managed_copy_falls_back_to_the_timestamp_rule() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
     let cli = skills_cli_copy(&tree, &markdown(None, true, "new"));
-    a_day_old(&cli);
     let stale = StaleIds {
         skills: vec![cli.id.clone()],
         ..StaleIds::default()
@@ -864,7 +863,6 @@ fn a_stale_managed_copy_falls_back_to_the_timestamp_rule() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
     let plugin = plugin_copy(&tree, &markdown(None, true, "new"));
-    a_day_old(&plugin);
     let stale = StaleIds {
         plugins: vec!["impeccable@impeccable#user".into()],
         ..StaleIds::default()
@@ -878,7 +876,6 @@ fn identical_managed_content_is_never_behind() {
     let tree = TempTree::new();
     let a = account(&tree, &markdown(None, false, "body"), &future_updated_at());
     let c = skills_cli_copy(&tree, &markdown(None, true, "body"));
-    a_day_old(&c);
 
     assert!(judge(&[&a, &c]).is_empty());
 }
@@ -893,4 +890,53 @@ fn a_managed_win_beats_an_unversioned_timestamp_win() {
     set_mtime(&plugin.path, UPLOADED as u64 - 86_400);
 
     assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &plugin, None));
+}
+
+#[test]
+fn a_current_managed_copy_beats_a_newer_hand_edited_copy() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let plugin = plugin_copy(&tree, &markdown(None, true, "p"));
+    let user = user_copy(&tree, &markdown(None, true, "u"));
+    set_mtime(&plugin.path, UPLOADED as u64 + 1_000);
+    set_mtime(&user.path, UPLOADED as u64 + 2_000);
+
+    assert_eq!(judge(&[&a, &user, &plugin]), behind(&a, &plugin, None));
+}
+
+#[test]
+fn a_stale_managed_copy_edited_after_the_upload_is_behind() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), "2026-10-24T12:57:30Z");
+    let cli = skills_cli_copy(&tree, &markdown(None, true, "new"));
+    set_mtime(&cli.path, UPLOADED as u64 + 1_000);
+    let stale = StaleIds {
+        skills: vec![cli.id.clone()],
+        ..StaleIds::default()
+    };
+
+    assert_eq!(judge_with(&[&a, &cli], &stale), behind(&a, &cli, None));
+}
+
+#[test]
+fn a_stale_plugin_with_a_longer_name_does_not_make_another_plugin_stale() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let c = plugin_copy(&tree, &markdown(None, true, "new"));
+    let stale = StaleIds {
+        plugins: vec!["impeccable@impeccable-bar#user".into()],
+        ..StaleIds::default()
+    };
+
+    assert_eq!(judge_with(&[&a, &c], &stale), behind(&a, &c, None));
+}
+
+#[test]
+fn an_unversioned_git_clone_copy_keeps_the_timestamp_rule() {
+    let tree = TempTree::new();
+    let a = account(&tree, &markdown(None, false, "old"), &future_updated_at());
+    let c = git_copy(&tree, &markdown(None, true, "new"));
+    set_mtime(&c.path, UPLOADED as u64 - 86_400);
+
+    assert!(judge(&[&a, &c]).is_empty());
 }

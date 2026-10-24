@@ -76,7 +76,7 @@ fn behind(
     candidates
         .iter()
         .filter(|candidate| is_newer(&account_copy, candidate, uploaded, stale))
-        .max_by(|a, b| preference(a, b, uploaded, stale))
+        .max_by(|a, b| preference(a, b, stale))
         .map(|best| AccountSkillBehind {
             account_id: account.id.clone(),
             local_id: best.skill.id.clone(),
@@ -179,7 +179,7 @@ fn tracks_current_upstream(copy: &SkillCopy, stale: &StaleIds) -> bool {
     }
 }
 
-fn preference(a: &SkillCopy, b: &SkillCopy, uploaded: Option<i64>, stale: &StaleIds) -> Ordering {
+fn preference(a: &SkillCopy, b: &SkillCopy, stale: &StaleIds) -> Ordering {
     let by_version = match (a.fields(), b.fields()) {
         (Some(_), None) => Ordering::Greater,
         (None, Some(_)) => Ordering::Less,
@@ -196,12 +196,9 @@ fn preference(a: &SkillCopy, b: &SkillCopy, uploaded: Option<i64>, stale: &Stale
     };
     by_version
         .then_with(|| {
-            let by_rule = |copy: &SkillCopy| {
-                copy.version.is_none()
-                    && tracks_current_upstream(copy, stale)
-                    && !edited_after(copy, uploaded)
-            };
-            by_rule(a).cmp(&by_rule(b))
+            let managed =
+                |copy: &SkillCopy| copy.version.is_none() && tracks_current_upstream(copy, stale);
+            managed(a).cmp(&managed(b))
         })
         .then_with(|| a.newest_mtime().cmp(&b.newest_mtime()))
         .then_with(|| b.skill.id.cmp(&a.skill.id))

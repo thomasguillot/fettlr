@@ -12,6 +12,7 @@ export const commands = {
 	deleteSkill: (skillId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("delete_skill", { skillId })),
 	deleteParkedSkill: (parkedId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("delete_parked_skill", { parkedId })),
 	pullSkill: (skillId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("pull_skill", { skillId })),
+	packageSkill: (skillId: string) => typedError<string, UiError>(__TAURI_INVOKE("package_skill", { skillId })),
 	parkSubagent: (subagentId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("park_subagent", { subagentId })),
 	restoreSubagent: (parkedId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("restore_subagent", { parkedId })),
 	deleteSubagent: (subagentId: string) => typedError<UiSnapshot, UiError>(__TAURI_INVOKE("delete_subagent", { subagentId })),
@@ -104,6 +105,12 @@ export type AppUpdateProgress = {
 };
 
 export type StateChanged = UiSnapshot;
+
+export type UiAccountSkillBehind = {
+	accountId: string,
+	localId: string,
+	localVersion: string | null,
+};
 
 export type UiAppUpdate = {
 	version: string,
@@ -241,7 +248,7 @@ export type UiProject = {
 	disabledMcpjsonServers: string[],
 };
 
-export type UiProvenance = { kind: "local" } | { kind: "gitClone" } | { kind: "plugin"; pluginId: string } | { kind: "skillsCli"; source: string };
+export type UiProvenance = { kind: "local" } | { kind: "gitClone" } | { kind: "plugin"; pluginId: string } | { kind: "skillsCli"; source: string } | { kind: "account"; updatedAt: string };
 
 export type UiScope = { kind: "user" } | { kind: "project"; path: string } | { kind: "local"; path: string } | { kind: "other"; name: string };
 
@@ -261,6 +268,7 @@ export type UiSkill = {
 export type UiSnapshot = {
 	cliAvailable: boolean,
 	skills: UiSkill[],
+	accountSkillsBehind: UiAccountSkillBehind[],
 	parkedSkills: UiParkedSkill[],
 	subagents: UiSubagent[],
 	parkedSubagents: UiParkedSubagent[],

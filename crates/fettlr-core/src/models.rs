@@ -54,6 +54,7 @@ pub enum UpdateState {
     UpdateAvailable { installed: String, latest: String },
     Behind { commits: u32 },
     TracksLatest,
+    SourceChanged,
 }
 
 impl UpdateState {
@@ -66,6 +67,7 @@ impl UpdateState {
     pub fn is_stale(&self) -> bool {
         match self {
             UpdateState::Behind { commits } => *commits > 0,
+            UpdateState::SourceChanged => true,
             UpdateState::UpdateAvailable { latest, .. } => latest != UNKNOWN_VERSION,
             _ => false,
         }
@@ -161,8 +163,9 @@ mod tests {
     }
 
     #[test]
-    fn behind_and_a_known_newer_version_are_the_only_stale_states() {
+    fn the_stale_states_are_behind_a_known_newer_version_and_a_changed_source() {
         assert!(UpdateState::Behind { commits: 1 }.is_stale());
+        assert!(UpdateState::SourceChanged.is_stale());
         assert!(
             UpdateState::UpdateAvailable {
                 installed: "1.0.0".to_string(),

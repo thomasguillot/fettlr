@@ -206,6 +206,7 @@ pub enum UiUpdateState {
     UpdateAvailable { installed: String, latest: String },
     Behind { commits: u32 },
     TracksLatest,
+    SourceChanged,
 }
 
 impl From<&UpdateState> for UiUpdateState {
@@ -220,6 +221,7 @@ impl From<&UpdateState> for UiUpdateState {
             },
             UpdateState::Behind { commits } => UiUpdateState::Behind { commits: *commits },
             UpdateState::TracksLatest => UiUpdateState::TracksLatest,
+            UpdateState::SourceChanged => UiUpdateState::SourceChanged,
         }
     }
 }

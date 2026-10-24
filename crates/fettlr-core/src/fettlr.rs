@@ -50,7 +50,8 @@ impl Fettlr {
         let skill_store = SkillStore::new(&paths, trasher.clone());
         let subagent_store =
             SkillStore::for_kind(ParkKind::Subagent, &paths, trasher, Arc::new(SystemClock));
-        let update_checker = UpdateChecker::new(git.clone(), registry);
+        let update_checker = UpdateChecker::new(git.clone(), registry)
+            .with_source_cache(paths.skill_sources_cache());
         Self {
             paths,
             cli,

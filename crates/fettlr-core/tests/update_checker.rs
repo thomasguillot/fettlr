@@ -901,10 +901,11 @@ fn downloaded_marketplace(tree: &TempTree, gcs_sha: Option<&str>) -> Marketplace
     marketplace("official", &dir.display().to_string())
 }
 
-fn remote_head_checker(head: &'static str) -> UpdateChecker {
+fn remote_head_checker(tree: &TempTree, head: &'static str) -> UpdateChecker {
     let git =
         FakeGitProbe::with_sources([("https://github.com/acme/official", head, BTreeMap::new())]);
     UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
+        .with_source_cache(tree.root().join("cache"))
 }
 
 fn state_of(checker: &UpdateChecker, record: MarketplaceRecord) -> UpdateState {
@@ -919,7 +920,7 @@ fn a_downloaded_marketplace_matching_the_remote_head_is_up_to_date() {
     let tree = TempTree::new();
     let record = downloaded_marketplace(&tree, Some(NEW_SHA));
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&tree, NEW_SHA), record),
         UpdateState::UpToDate
     );
 }
@@ -929,7 +930,7 @@ fn a_downloaded_marketplace_that_differs_from_the_remote_head_is_unknown() {
     let tree = TempTree::new();
     let record = downloaded_marketplace(&tree, Some(OLD_SHA));
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&tree, NEW_SHA), record),
         UpdateState::Unknown
     );
 }
@@ -940,7 +941,7 @@ fn a_downloaded_marketplace_reads_its_sha_through_whitespace_and_case() {
     let padded = format!("  {}\n", NEW_SHA.to_ascii_uppercase());
     let record = downloaded_marketplace(&tree, Some(&padded));
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&tree, NEW_SHA), record),
         UpdateState::UpToDate
     );
 }
@@ -956,7 +957,7 @@ fn a_malformed_sha_file_leaves_the_marketplace_unknown() {
         let tree = TempTree::new();
         let record = downloaded_marketplace(&tree, Some(contents));
         assert_eq!(
-            state_of(&remote_head_checker(NEW_SHA), record),
+            state_of(&remote_head_checker(&tree, NEW_SHA), record),
             UpdateState::Unknown,
             "contents {contents:?}"
         );
@@ -971,9 +972,9 @@ fn an_unreachable_remote_leaves_a_downloaded_marketplace_unknown() {
 }
 
 #[test]
-fn a_real_clone_ignores_the_sha_file() {
+fn a_real_clone_without_a_sha_file_is_counted_by_git() {
     let tree = TempTree::new();
-    let record = downloaded_marketplace(&tree, Some(OLD_SHA));
+    let record = downloaded_marketplace(&tree, None);
     tree.make_directory(&tree.root().join("marketplaces/official/.git"));
     let git = FakeGitProbe::with_counts([(record.install_location.clone(), 2)]);
     let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
@@ -984,6 +985,79 @@ fn a_real_clone_ignores_the_sha_file() {
 }
 
 #[test]
+fn a_sha_file_wins_over_a_planted_repository_and_git_is_never_run_there() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(NEW_SHA));
+    tree.make_directory(&tree.root().join("marketplaces/official/.git"));
+    let git = FakeGitProbe::with_sources([(
+        "https://github.com/acme/official",
+        NEW_SHA,
+        BTreeMap::new(),
+    )])
+    .with_counts_for(record.install_location.clone(), 2);
+    let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
+        .with_source_cache(tree.root().join("cache"));
+    assert_eq!(state_of(&checker, record), UpdateState::UpToDate);
+}
+
+struct WorkdirRecorder(Mutex<Vec<PathBuf>>);
+
+impl GitProbing for WorkdirRecorder {
+    fn behind_count(&self, _repo: &Path) -> Result<u32, CoreError> {
+        Ok(0)
+    }
+    fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
+        Ok(())
+    }
+    fn remote_head(
+        &self,
+        _url: &str,
+        _reference: Option<&str>,
+        workdir: &Path,
+    ) -> Result<String, CoreError> {
+        self.0.lock().unwrap().push(workdir.to_path_buf());
+        Ok(NEW_SHA.to_string())
+    }
+    fn fetch_source(&self, _: &str, _: Option<&str>, _: &Path) -> Result<String, CoreError> {
+        unreachable!()
+    }
+    fn tree_sha(&self, _: &Path, _: &str, _: &str) -> Result<Option<String>, CoreError> {
+        unreachable!()
+    }
+    fn export_folder(&self, _: &Path, _: &str, _: &str, _: &Path) -> Result<(), CoreError> {
+        unreachable!()
+    }
+}
+
+#[test]
+fn the_remote_head_probe_runs_from_the_source_cache_never_the_marketplace_folder() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(NEW_SHA));
+    let planted = tree.root().join("marketplaces/official/fettlr-no-git-dir");
+    tree.write("ref: refs/heads/main\n", &planted.join("HEAD"));
+    let recorder = Arc::new(WorkdirRecorder(Mutex::new(Vec::new())));
+    let cache = tree.root().join("cache");
+    let checker = UpdateChecker::new(recorder.clone(), Arc::new(FakeRegistryClient::new()))
+        .with_source_cache(cache.clone());
+    assert_eq!(state_of(&checker, record), UpdateState::UpToDate);
+    assert_eq!(*recorder.0.lock().unwrap(), vec![cache.clone()]);
+    assert!(cache.is_dir());
+}
+
+#[test]
+fn without_a_source_cache_a_downloaded_marketplace_is_unknown() {
+    let tree = TempTree::new();
+    let record = downloaded_marketplace(&tree, Some(NEW_SHA));
+    let git = FakeGitProbe::with_sources([(
+        "https://github.com/acme/official",
+        NEW_SHA,
+        BTreeMap::new(),
+    )]);
+    let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
+    assert_eq!(state_of(&checker, record), UpdateState::Unknown);
+}
+
+#[test]
 fn only_github_sources_are_checked_by_sha_file() {
     let tree = TempTree::new();
     let mut record = downloaded_marketplace(&tree, Some(OLD_SHA));
@@ -991,7 +1065,7 @@ fn only_github_sources_are_checked_by_sha_file() {
     record.repo = None;
     record.url = Some("https://example.com/x.git".to_string());
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&tree, NEW_SHA), record),
         UpdateState::Unknown
     );
 }
@@ -1185,13 +1259,13 @@ fn a_sha_256_marketplace_commit_equal_to_the_head_is_up_to_date_only_when_equal(
     let tree = TempTree::new();
     let record = downloaded_marketplace(&tree, Some(LONG));
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&tree, NEW_SHA), record),
         UpdateState::Unknown
     );
     let tree = TempTree::new();
     let record = downloaded_marketplace(&tree, Some(LONG));
     assert_eq!(
-        state_of(&remote_head_checker(LONG), record),
+        state_of(&remote_head_checker(&tree, LONG), record),
         UpdateState::UpToDate
     );
 }
@@ -1204,7 +1278,7 @@ fn a_linked_oversize_or_special_sha_file_is_unknown() {
     let real = linked.write(NEW_SHA, &linked.root().join("real-sha"));
     std::os::unix::fs::symlink(real, dir.join(".gcs-sha")).unwrap();
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&linked, NEW_SHA), record),
         UpdateState::Unknown
     );
 
@@ -1212,7 +1286,7 @@ fn a_linked_oversize_or_special_sha_file_is_unknown() {
     let padded = format!("{NEW_SHA}{}", " ".repeat(4096));
     let record = downloaded_marketplace(&big, Some(&padded));
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&big, NEW_SHA), record),
         UpdateState::Unknown
     );
 
@@ -1227,7 +1301,7 @@ fn a_linked_oversize_or_special_sha_file_is_unknown() {
     .unwrap();
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
     assert_eq!(
-        state_of(&remote_head_checker(NEW_SHA), record),
+        state_of(&remote_head_checker(&fifo, NEW_SHA), record),
         UpdateState::Unknown
     );
 }
@@ -1256,7 +1330,8 @@ fn only_an_owner_and_name_repo_is_turned_into_a_url() {
             NEW_SHA,
             BTreeMap::new(),
         )]);
-        let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
+        let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()))
+            .with_source_cache(tree.root().join("cache"));
         let expected = if ok {
             UpdateState::UpToDate
         } else {

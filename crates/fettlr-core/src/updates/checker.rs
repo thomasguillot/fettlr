@@ -113,10 +113,11 @@ impl UpdateChecker {
 
         for record in marketplaces {
             let git = self.git.as_ref();
+            let cache = self.source_cache.as_deref();
             jobs.push(Job {
                 target: Target::Marketplace,
                 id: record.name.clone(),
-                compute: Box::new(move || marketplace_state(record, git)),
+                compute: Box::new(move || marketplace_state(record, git, cache)),
             });
         }
 
@@ -221,13 +222,17 @@ fn run_jobs<'a>(jobs: Vec<Job<'a>>) -> Vec<JobResult> {
     results.into_inner().expect("lock poisoned")
 }
 
-fn marketplace_state(record: &MarketplaceRecord, git: &dyn GitProbing) -> UpdateState {
+fn marketplace_state(
+    record: &MarketplaceRecord,
+    git: &dyn GitProbing,
+    source_cache: Option<&Path>,
+) -> UpdateState {
     if record.install_location.is_empty() || !matches!(record.source.as_str(), "github" | "git") {
         return UpdateState::Unknown;
     }
     let dir = Path::new(&record.install_location);
-    if !dir.join(".git").exists() && std::fs::symlink_metadata(dir.join(GCS_SHA_FILE)).is_ok() {
-        return downloaded_marketplace_state(record, dir, git);
+    if std::fs::symlink_metadata(dir.join(GCS_SHA_FILE)).is_ok() {
+        return downloaded_marketplace_state(record, dir, git, source_cache);
     }
     behind_state(git.behind_count(dir))
 }
@@ -236,6 +241,7 @@ fn downloaded_marketplace_state(
     record: &MarketplaceRecord,
     dir: &Path,
     git: &dyn GitProbing,
+    source_cache: Option<&Path>,
 ) -> UpdateState {
     let (Some(installed), "github", Some(repo)) =
         (read_gcs_sha(dir), record.source.as_str(), &record.repo)
@@ -245,7 +251,13 @@ fn downloaded_marketplace_state(
     if !is_owner_and_name(repo) {
         return UpdateState::Unknown;
     }
-    match git.remote_head(&format!("https://github.com/{repo}"), None, dir) {
+    let Some(workdir) = source_cache else {
+        return UpdateState::Unknown;
+    };
+    if std::fs::create_dir_all(workdir).is_err() {
+        return UpdateState::Unknown;
+    }
+    match git.remote_head(&format!("https://github.com/{repo}"), None, workdir) {
         Ok(head) if head.eq_ignore_ascii_case(&installed) => UpdateState::UpToDate,
         _ => UpdateState::Unknown,
     }

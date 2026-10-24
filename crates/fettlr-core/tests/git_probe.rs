@@ -590,3 +590,49 @@ fn remote_head_ignores_a_repository_around_its_directory() {
         .expect("remote head");
     assert_eq!(head, fixture.origin_rev("HEAD"));
 }
+
+#[test]
+fn remote_head_returns_a_64_hex_head_from_a_sha_256_repository() {
+    if !git_installed() {
+        return;
+    }
+    let root = tempfile::TempDir::new().expect("create temp dir");
+    let origin = root.path().join("origin");
+    std::fs::create_dir_all(&origin).unwrap();
+    run(
+        &[
+            "-c",
+            "init.defaultBranch=main",
+            "init",
+            "--quiet",
+            "--object-format=sha256",
+        ],
+        &origin,
+    );
+    std::fs::write(origin.join("a.txt"), "a").unwrap();
+    run(&["add", "."], &origin);
+    run(
+        &[
+            "-c",
+            "user.email=fettlr@example.test",
+            "-c",
+            "user.name=Fettlr",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "one",
+        ],
+        &origin,
+    );
+    let workdir = tempfile::TempDir::new().expect("create temp dir");
+    let head = GitProbe
+        .remote_head(
+            &format!("file://{}", origin.display()),
+            None,
+            workdir.path(),
+        )
+        .expect("remote head");
+    assert_eq!(head.len(), 64);
+}

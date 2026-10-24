@@ -112,11 +112,7 @@ pub fn read_plugin_catalogue(paths: &Paths) -> PluginCatalogue {
             record.source.get("source").and_then(Value::as_str),
             Some("github" | "git")
         );
-        let downloaded_commit = if git_hosted && !dir.join(".git").exists() {
-            read_gcs_sha(&dir)
-        } else {
-            None
-        };
+        let downloaded_commit = if git_hosted { read_gcs_sha(&dir) } else { None };
         for raw in manifest.plugins {
             let entry = match serde_json::from_value::<MarketplaceEntry>(raw.clone()) {
                 Ok(entry) => entry,

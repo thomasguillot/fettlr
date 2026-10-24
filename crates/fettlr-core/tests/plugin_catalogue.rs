@@ -348,21 +348,32 @@ fn a_versionless_relative_plugin_tracks_the_downloaded_marketplace_commit() {
 }
 
 #[test]
-fn a_malformed_sha_file_or_a_real_clone_leaves_a_versionless_relative_plugin_untracked() {
-    for (contents, clone) in [(&GCS_SHA[..39], false), (GCS_SHA, true)] {
-        let tree = TempTree::new();
-        let dir = tree.write_marketplace(
-            "m",
-            github(),
-            json!([{"name": "bare", "source": "./plugins/bare"}]),
-        );
-        tree.write(contents, &dir.join(".gcs-sha"));
-        if clone {
-            tree.make_directory(&dir.join(".git"));
-        }
-        assert_eq!(
-            read_plugin_catalogue(&tree.paths).get("bare@m"),
-            Some(&CatalogueVersion::Untracked)
-        );
-    }
+fn a_malformed_sha_file_leaves_a_versionless_relative_plugin_untracked() {
+    let tree = TempTree::new();
+    let dir = tree.write_marketplace(
+        "m",
+        github(),
+        json!([{"name": "bare", "source": "./plugins/bare"}]),
+    );
+    tree.write(&GCS_SHA[..39], &dir.join(".gcs-sha"));
+    assert_eq!(
+        read_plugin_catalogue(&tree.paths).get("bare@m"),
+        Some(&CatalogueVersion::Untracked)
+    );
+}
+
+#[test]
+fn a_sha_file_beside_a_planted_repository_still_supplies_the_commit() {
+    let tree = TempTree::new();
+    let dir = tree.write_marketplace(
+        "m",
+        github(),
+        json!([{"name": "bare", "source": "./plugins/bare"}]),
+    );
+    tree.write(GCS_SHA, &dir.join(".gcs-sha"));
+    tree.make_directory(&dir.join(".git"));
+    assert_eq!(
+        read_plugin_catalogue(&tree.paths).get("bare@m"),
+        Some(&CatalogueVersion::Commit(GCS_SHA.into()))
+    );
 }

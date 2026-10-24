@@ -276,6 +276,11 @@ impl FakeGitProbe {
         }
     }
 
+    pub fn with_counts_for(mut self, repo: impl Into<String>, count: u32) -> Self {
+        self.counts.insert(repo.into(), count);
+        self
+    }
+
     pub fn with_unreachable_source(mut self, url: &'static str) -> Self {
         self.unreachable.insert(url.to_string());
         self

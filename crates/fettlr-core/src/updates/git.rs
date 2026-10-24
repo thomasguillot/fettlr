@@ -119,7 +119,7 @@ fn first_commit(listing: &str) -> Option<String> {
         .lines()
         .next()
         .and_then(|line| line.split_whitespace().next())
-        .filter(|sha| is_commit_sha(sha))
+        .filter(|sha| matches!(sha.len(), 40 | 64) && sha.bytes().all(|b| b.is_ascii_hexdigit()))
         .map(str::to_string)
 }
 

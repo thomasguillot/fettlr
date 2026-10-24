@@ -108,3 +108,7 @@ export function staleTotal(report: UiUpdateReport | null | undefined): number {
   if (!report) return 0;
   return Object.values(report.stale).reduce((total, ids) => total + ids.length, 0);
 }
+
+export function needsUpdatingTotal(snapshot: UiSnapshot | null | undefined): number {
+  return staleTotal(snapshot?.updateReport) + (snapshot?.accountSkillsBehind.length ?? 0);
+}

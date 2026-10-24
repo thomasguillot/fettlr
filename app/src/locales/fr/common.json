@@ -114,7 +114,8 @@
     "kindMarketplace": "Place de marché",
     "kindPlugin": "Extension",
     "kindSkill": "Compétence",
-    "kindMcpServer": "Serveur MCP"
+    "kindMcpServer": "Serveur MCP",
+    "kindAccountSkill": "Compétence du compte"
   },
   "updateAll": {
     "failed_one": "{{count}} élément n'a pas pu être mis à jour.",

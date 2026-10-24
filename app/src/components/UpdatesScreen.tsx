@@ -23,16 +23,8 @@ import { StaleBadge } from "./badges";
 import { ScreenShell, contentFrame, formatTimestamp, framedTable, screenColumn, stickyHeaderScrollArea, stickyTableHeader } from "./screen";
 import { installedFromMarketplace } from "./marketplaces/installedCount";
 import { repinMcpServer } from "./mcp/mcpConfig";
-
-type UpdateRow = {
-  id: string;
-  kind: "marketplace" | "plugin" | "skill" | "mcpServer";
-  name: string;
-  note: string | null;
-  detail: string;
-  action: ((id: string) => void) | null;
-  actionKey: string;
-};
+import { describeAccountBehind, packageForUpload } from "./skills/accountSkills";
+import { type UpdateRow, updateAllCount } from "./updateRows";
 
 export function UpdatesScreen() {
   const { t } = useTranslation();
@@ -71,90 +63,111 @@ export function UpdatesScreen() {
   );
 
   const rows = useMemo<UpdateRow[]>(() => {
-    if (!snapshot?.updateReport) return [];
-    const report = snapshot.updateReport;
-    const staleMarketplaces = staleIds(report, "marketplaces");
-    const stalePlugins = staleIds(report, "plugins");
-    const staleSkills = staleIds(report, "skills");
-    const staleServers = staleIds(report, "mcpServers");
+    if (!snapshot) return [];
     const result: UpdateRow[] = [];
+    const report = snapshot.updateReport;
+    if (report) {
+      const staleMarketplaces = staleIds(report, "marketplaces");
+      const stalePlugins = staleIds(report, "plugins");
+      const staleSkills = staleIds(report, "skills");
+      const staleServers = staleIds(report, "mcpServers");
 
-    for (const marketplace of snapshot.marketplaces) {
-      if (!staleMarketplaces.has(marketplace.name)) continue;
-      result.push({
-        id: `marketplace:${marketplace.name}`,
-        kind: "marketplace",
-        name: marketplace.name,
-        note:
-          installedFromMarketplace(snapshot.plugins, marketplace.name) === 0
-            ? t("marketplaces.nothingInstalled")
-            : null,
-        detail: describeState(report.marketplaces[marketplace.name]),
-        action: (id: string) => void run(id, () => dispatch(commands.updateMarketplace(marketplace.name))),
-        actionKey: "common.update",
-      });
+      for (const marketplace of snapshot.marketplaces) {
+        if (!staleMarketplaces.has(marketplace.name)) continue;
+        result.push({
+          id: `marketplace:${marketplace.name}`,
+          kind: "marketplace",
+          name: marketplace.name,
+          note:
+            installedFromMarketplace(snapshot.plugins, marketplace.name) === 0
+              ? t("marketplaces.nothingInstalled")
+              : null,
+          detail: describeState(report.marketplaces[marketplace.name]),
+          action: (id: string) => void run(id, () => dispatch(commands.updateMarketplace(marketplace.name))),
+          actionKey: "common.update",
+          inUpdateAll: true,
+        });
+      }
+
+      for (const plugin of snapshot.plugins) {
+        if (!stalePlugins.has(plugin.id)) continue;
+        result.push({
+          id: `plugin:${plugin.id}`,
+          kind: "plugin",
+          name: plugin.name,
+          note: null,
+          detail: describeState(report.plugins[plugin.id]),
+          action:
+            plugin.scope.kind === "other"
+              ? null
+              : (id: string) => void run(id, () => dispatch(commands.updatePlugin(plugin.pluginId, plugin.scope))),
+          actionKey: "common.update",
+          inUpdateAll: true,
+        });
+      }
+
+      for (const skill of snapshot.skills) {
+        if (!staleSkills.has(skill.id)) continue;
+        result.push({
+          id: `skill:${skill.id}`,
+          kind: "skill",
+          name: skill.title ?? skill.name,
+          note: null,
+          detail: describeState(report.skills[skill.id]),
+          action: (id: string) => void run(id, () => dispatch(commands.pullSkill(skill.id))),
+          actionKey: "common.update",
+          inUpdateAll: true,
+        });
+      }
+
+      for (const server of snapshot.mcpServers) {
+        if (!staleServers.has(server.id)) continue;
+        const state = report.mcpServers[server.id];
+        const latest = state?.kind === "updateAvailable" ? state.latest : null;
+        const origin = server.origin;
+        let action: ((id: string) => void) | null = null;
+        let actionKey = "common.update";
+        if (latest !== null && origin.kind !== "plugin") {
+          action = (id: string) => void run(id, () => repinMcpServer(dispatch, server, latest));
+        } else if (origin.kind === "plugin") {
+          const owner = snapshot.plugins.find((plugin) => origin.kind === "plugin" && plugin.pluginId === origin.pluginId) ?? null;
+          if (owner) {
+            action = () => navigateToItem("plugins", owner.id);
+            actionKey = "updates.viewPlugin";
+          }
+        }
+        result.push({
+          id: `mcpServer:${server.id}`,
+          kind: "mcpServer",
+          name: server.name,
+          note: null,
+          detail: describeState(state),
+          action,
+          actionKey,
+          inUpdateAll: false,
+        });
+      }
     }
 
-    for (const plugin of snapshot.plugins) {
-      if (!stalePlugins.has(plugin.id)) continue;
+    for (const entry of snapshot.accountSkillsBehind) {
+      const skill = snapshot.skills.find((item) => item.id === entry.accountId);
+      if (!skill) continue;
       result.push({
-        id: `plugin:${plugin.id}`,
-        kind: "plugin",
-        name: plugin.name,
-        note: null,
-        detail: describeState(report.plugins[plugin.id]),
-        action:
-          plugin.scope.kind === "other"
-            ? null
-            : (id: string) => void run(id, () => dispatch(commands.updatePlugin(plugin.pluginId, plugin.scope))),
-        actionKey: "common.update",
-      });
-    }
-
-    for (const skill of snapshot.skills) {
-      if (!staleSkills.has(skill.id)) continue;
-      result.push({
-        id: `skill:${skill.id}`,
-        kind: "skill",
+        id: `accountSkill:${entry.accountId}`,
+        kind: "accountSkill",
         name: skill.title ?? skill.name,
         note: null,
-        detail: describeState(report.skills[skill.id]),
-        action: (id: string) => void run(id, () => dispatch(commands.pullSkill(skill.id))),
-        actionKey: "common.update",
-      });
-    }
-
-    for (const server of snapshot.mcpServers) {
-      if (!staleServers.has(server.id)) continue;
-      const state = report.mcpServers[server.id];
-      const latest = state?.kind === "updateAvailable" ? state.latest : null;
-      const origin = server.origin;
-      let action: ((id: string) => void) | null = null;
-      let actionKey = "common.update";
-      if (latest !== null && origin.kind !== "plugin") {
-        action = (id: string) => void run(id, () => repinMcpServer(dispatch, server, latest));
-      } else if (origin.kind === "plugin") {
-        const owner = snapshot.plugins.find((plugin) => origin.kind === "plugin" && plugin.pluginId === origin.pluginId) ?? null;
-        if (owner) {
-          action = () => navigateToItem("plugins", owner.id);
-          actionKey = "updates.viewPlugin";
-        }
-      }
-      result.push({
-        id: `mcpServer:${server.id}`,
-        kind: "mcpServer",
-        name: server.name,
-        note: null,
-        detail: describeState(state),
-        action,
-        actionKey,
+        detail: describeAccountBehind(entry, t),
+        action: () => void packageForUpload(dispatch, entry.localId),
+        actionKey: "skills.account.package",
+        inUpdateAll: false,
       });
     }
 
     return result;
   }, [snapshot, dispatch, run, describeState, navigateToItem, t]);
 
-  const updateAllTotal = useMemo(() => rows.filter((row) => row.kind !== "mcpServer" && row.action !== null).length, [rows]);
+  const updateAllTotal = useMemo(() => updateAllCount(rows), [rows]);
   const checked = snapshot?.updateReport != null;
 
   const columns = {

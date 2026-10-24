@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { UiSnapshot, UiUpdateReport, UiUpdateState } from "./bindings";
-import { sectionCount, sections, staleCount, staleIds, staleTotal } from "./sections";
+import { sectionCount, sections, staleCount, needsUpdatingTotal, staleIds, staleTotal } from "./sections";
 
 function report(overrides: Partial<UiUpdateReport>): UiUpdateReport {
   return {
@@ -66,6 +66,27 @@ describe("staleness comes from the core, not from the states", () => {
 
     expect(staleTotal(snapshot)).toBe(3);
     expect(staleTotal(null)).toBe(0);
+  });
+});
+
+describe("needsUpdatingTotal", () => {
+  const entry = { accountId: "a", localId: "l", localVersion: null };
+
+  it("is zero without a snapshot", () => {
+    expect(needsUpdatingTotal(null)).toBe(0);
+  });
+
+  it("counts account skills with no update report at all", () => {
+    expect(needsUpdatingTotal(snapshotWith({ accountSkillsBehind: [entry] }))).toBe(1);
+  });
+
+  it("adds the stale ids and the account skills", () => {
+    const stale = report({
+      stale: { marketplaces: [], plugins: ["p"], skills: ["s"], mcpServers: [] },
+    });
+    expect(
+      needsUpdatingTotal(snapshotWith({ updateReport: stale, accountSkillsBehind: [entry] })),
+    ).toBe(3);
   });
 });
 

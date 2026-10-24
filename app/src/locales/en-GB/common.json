@@ -114,7 +114,8 @@
     "kindMarketplace": "Marketplace",
     "kindPlugin": "Plugin",
     "kindSkill": "Skill",
-    "kindMcpServer": "MCP server"
+    "kindMcpServer": "MCP server",
+    "kindAccountSkill": "Account skill"
   },
   "updateAll": {
     "failed_one": "{{count}} item couldn't be updated.",

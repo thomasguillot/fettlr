@@ -241,7 +241,7 @@ export type UiProject = {
 	disabledMcpjsonServers: string[],
 };
 
-export type UiProvenance = { kind: "local" } | { kind: "gitClone" } | { kind: "plugin"; pluginId: string };
+export type UiProvenance = { kind: "local" } | { kind: "gitClone" } | { kind: "plugin"; pluginId: string } | { kind: "skillsCli"; source: string };
 
 export type UiScope = { kind: "user" } | { kind: "project"; path: string } | { kind: "local"; path: string } | { kind: "other"; name: string };
 
@@ -326,7 +326,7 @@ export type UiUpdateReport = {
 
 export type UiUpdateStage = "running" | "updated" | "failed";
 
-export type UiUpdateState = { kind: "unknown" } | { kind: "upToDate" } | { kind: "checking" } | { kind: "updateAvailable"; installed: string; latest: string } | { kind: "behind"; commits: number } | { kind: "tracksLatest" };
+export type UiUpdateState = { kind: "unknown" } | { kind: "upToDate" } | { kind: "checking" } | { kind: "updateAvailable"; installed: string; latest: string } | { kind: "behind"; commits: number } | { kind: "tracksLatest" } | { kind: "sourceChanged" };
 
 /**
  *  How often Claude Code has reached for something, as it records it in `~/.claude.json`.

@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient};
 use fettlr_core::{
-    CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer, McpServerConfig, PluginRecord,
-    Provenance, Scope, Skill, UpdateChecker, UpdateState,
+    CatalogueVersion, CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer,
+    McpServerConfig, PluginCatalogue, PluginRecord, Provenance, Scope, Skill, UpdateChecker,
+    UpdateState,
 };
 
 fn marketplace(name: &str, install_location: &str) -> MarketplaceRecord {
@@ -29,13 +30,15 @@ fn plugin(id: &str, version: &str) -> PluginRecord {
     serde_json::from_value(json).expect("decode plugin")
 }
 
-fn available_plugin(id: &str, version: &str) -> PluginRecord {
-    let json = serde_json::json!({
-        "id": id,
-        "version": version,
-        "scope": "user",
-    });
-    serde_json::from_value(json).expect("decode plugin")
+fn catalogue(entries: &[(&str, CatalogueVersion)]) -> PluginCatalogue {
+    entries
+        .iter()
+        .map(|(id, version)| (id.to_string(), version.clone()))
+        .collect()
+}
+
+fn versioned(version: &str) -> CatalogueVersion {
+    CatalogueVersion::Version(version.to_string())
 }
 
 fn skill(name: &str, provenance: Provenance, path: &str) -> Skill {
@@ -135,7 +138,7 @@ fn marketplaces_report_behind_counts_and_isolate_failures() {
         marketplace("broken", "/repos/broken"),
         marketplace("nowhere", ""),
     ];
-    let report = checker.check(&marketplaces, &[], &[], &[], &[]);
+    let report = checker.check(&marketplaces, &[], &PluginCatalogue::default(), &[], &[]);
 
     assert_eq!(
         report.marketplaces["behind"],
@@ -147,7 +150,7 @@ fn marketplaces_report_behind_counts_and_isolate_failures() {
 }
 
 #[test]
-fn plugins_compare_against_available_versions() {
+fn plugins_compare_against_the_catalogue() {
     let installed = vec![
         plugin("outdated@acme", "1.0.0"),
         plugin("current@acme", "1.1.0"),
@@ -156,13 +159,13 @@ fn plugins_compare_against_available_versions() {
         plugin("mystery@acme", "unknown"),
         plugin("orphan@acme", "1.0.0"),
     ];
-    let available = vec![
-        available_plugin("outdated@acme", "1.1.0"),
-        available_plugin("current@acme", "1.1.0"),
-        available_plugin("ahead@acme", "1.9.0"),
-        available_plugin("padded@acme", "1.2.0"),
-        available_plugin("mystery@acme", "1.2.0"),
-    ];
+    let available = catalogue(&[
+        ("outdated@acme", versioned("1.1.0")),
+        ("current@acme", versioned("1.1.0")),
+        ("ahead@acme", versioned("1.9.0")),
+        ("padded@acme", versioned("1.2.0")),
+        ("mystery@acme", versioned("1.2.0")),
+    ]);
 
     let report = default_checker().check(&[], &installed, &available, &[], &[]);
 
@@ -187,40 +190,71 @@ fn plugins_compare_against_available_versions() {
 }
 
 #[test]
-fn merged_plugin_list_never_matches_a_record_against_itself() {
-    let merged = vec![
-        plugin("installed@acme", "1.0.0"),
-        available_plugin("catalogue@acme", "1.0.0"),
-    ];
+fn a_plugin_installed_in_two_scopes_is_judged_in_both() {
+    let user = plugin("newspack@newspack-devkit", "0.52.2");
+    let project: PluginRecord = serde_json::from_value(serde_json::json!({
+        "id": "newspack@newspack-devkit",
+        "version": "0.52.2",
+        "scope": "project",
+        "projectPath": "/p",
+        "enabled": true,
+        "installPath": "/fake/home/.claude/plugins/cache/newspack",
+    }))
+    .expect("decode plugin");
+    let available = catalogue(&[("newspack@newspack-devkit", versioned("0.80.0"))]);
 
-    let report = default_checker().check(&[], &merged, &merged, &[], &[]);
+    let report = default_checker().check(&[], &[user, project], &available, &[], &[]);
 
-    assert_eq!(report.plugins["catalogue@acme#user"], UpdateState::Unknown);
-    assert_eq!(report.plugins["installed@acme#user"], UpdateState::Unknown);
+    let expected = UpdateState::UpdateAvailable {
+        installed: "0.52.2".to_string(),
+        latest: "0.80.0".to_string(),
+    };
+    assert_eq!(report.plugins["newspack@newspack-devkit#user"], expected);
+    assert_eq!(
+        report.plugins["newspack@newspack-devkit#project:/p"],
+        expected
+    );
 }
 
 #[test]
-fn duplicate_catalogue_entries_use_the_highest_version() {
-    let installed = vec![plugin("dup@acme", "1.5.0")];
-    let ascending = vec![
-        available_plugin("dup@acme", "1.0.0"),
-        available_plugin("dup@acme", "2.0.0"),
+fn a_commit_versioned_plugin_compares_against_the_pinned_commit() {
+    let sha = "9847f2aa1a15f25df35ed1fb7b4557dbb60cd651";
+    let installed = vec![
+        plugin("same@acme", "9847f2aa1a15"),
+        plugin("behind@acme", "58267944f921"),
+        plugin("semver@acme", "7.0.0"),
+        plugin("upper@acme", "9847f2aa1a15"),
     ];
-    let descending = vec![
-        available_plugin("dup@acme", "2.0.0"),
-        available_plugin("dup@acme", "1.0.0"),
-    ];
+    let available = catalogue(&[
+        ("same@acme", CatalogueVersion::Commit(sha.to_string())),
+        ("behind@acme", CatalogueVersion::Commit(sha.to_string())),
+        ("semver@acme", CatalogueVersion::Commit(sha.to_string())),
+        ("upper@acme", CatalogueVersion::Commit(sha.to_uppercase())),
+    ]);
 
-    for available in [ascending, descending] {
-        let report = default_checker().check(&[], &installed, &available, &[], &[]);
-        assert_eq!(
-            report.plugins["dup@acme#user"],
-            UpdateState::UpdateAvailable {
-                installed: "1.5.0".to_string(),
-                latest: "2.0.0".to_string()
-            }
-        );
-    }
+    let report = default_checker().check(&[], &installed, &available, &[], &[]);
+
+    assert_eq!(report.plugins["same@acme#user"], UpdateState::UpToDate);
+    assert_eq!(
+        report.plugins["behind@acme#user"],
+        UpdateState::UpdateAvailable {
+            installed: "58267944f921".to_string(),
+            latest: "9847f2aa1a15".to_string()
+        }
+    );
+    assert_eq!(report.plugins["semver@acme#user"], UpdateState::Unknown);
+    assert_eq!(report.plugins["upper@acme#user"], UpdateState::UpToDate);
+}
+
+#[test]
+fn an_untracked_entry_is_unknown() {
+    let plugins = vec![plugin("widgets@acme", "1.0.0")];
+    let available = catalogue(&[("widgets@acme", CatalogueVersion::Untracked)]);
+
+    let report = default_checker().check(&[], &plugins, &available, &[], &[]);
+
+    assert_eq!(report.plugins["widgets@acme#user"], UpdateState::Unknown);
+    assert!(report.stale_ids().plugins.is_empty());
 }
 
 #[test]
@@ -237,7 +271,13 @@ fn skills_only_check_git_clones() {
     let git = FakeGitProbe::with_counts([("/skills/superpowers", 2)]);
     let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
 
-    let report = checker.check(&[], &[], &[], &[cloned, local, from_plugin], &[]);
+    let report = checker.check(
+        &[],
+        &[],
+        &PluginCatalogue::default(),
+        &[cloned, local, from_plugin],
+        &[],
+    );
 
     assert_eq!(
         report.skills["user/superpowers"],
@@ -279,7 +319,7 @@ fn mcp_packages_compare_against_the_registry() {
         mcp_server("missing", stdio_config("npx", &["-y", "gone@1.0.0"])),
     ];
 
-    let report = checker.check(&[], &[], &[], &[], &servers);
+    let report = checker.check(&[], &[], &PluginCatalogue::default(), &[], &servers);
 
     assert_eq!(
         report.mcp_servers["user/stale"],
@@ -320,7 +360,7 @@ fn slow_registry_calls_fall_back_to_unknown() {
         mcp_server("slow", stdio_config("npx", &["-y", "slow@0.9.0"])),
         mcp_server("quick", stdio_config("npx", &["-y", "quick@1.0.0"])),
     ];
-    let report = checker.check(&[], &[], &[], &[], &servers);
+    let report = checker.check(&[], &[], &PluginCatalogue::default(), &[], &servers);
 
     assert_eq!(report.mcp_servers["user/slow"], UpdateState::Unknown);
     assert_eq!(report.mcp_servers["user/quick"], UpdateState::UpToDate);
@@ -328,7 +368,7 @@ fn slow_registry_calls_fall_back_to_unknown() {
 
 #[test]
 fn empty_input_produces_an_empty_report() {
-    let report = default_checker().check(&[], &[], &[], &[], &[]);
+    let report = default_checker().check(&[], &[], &PluginCatalogue::default(), &[], &[]);
 
     assert!(report.marketplaces.is_empty());
     assert!(report.plugins.is_empty());
@@ -348,7 +388,7 @@ fn a_panicking_job_is_isolated_as_unknown() {
         marketplace("boom", "/repos/boom"),
         marketplace("current", "/repos/current"),
     ];
-    let report = checker.check(&marketplaces, &[], &[], &[], &[]);
+    let report = checker.check(&marketplaces, &[], &PluginCatalogue::default(), &[], &[]);
 
     assert_eq!(
         report.marketplaces["behind"],
@@ -366,20 +406,12 @@ fn at_most_six_checks_run_concurrently() {
     let marketplaces: Vec<MarketplaceRecord> = (0..20)
         .map(|index| marketplace(&format!("mp-{index}"), &format!("/repos/mp-{index}")))
         .collect();
-    let report = checker.check(&marketplaces, &[], &[], &[], &[]);
+    let report = checker.check(&marketplaces, &[], &PluginCatalogue::default(), &[], &[]);
 
     assert_eq!(report.marketplaces.len(), 20);
     let peak = git.peak();
     assert!(peak <= 6, "peak was {peak}");
     assert!(peak >= 2, "peak was {peak}");
-}
-
-fn versionless_plugin(id: &str) -> PluginRecord {
-    let json = serde_json::json!({
-        "id": id,
-        "scope": "user",
-    });
-    serde_json::from_value(json).expect("decode plugin")
 }
 
 #[test]
@@ -398,10 +430,10 @@ fn stale_ids_name_every_list_the_report_calls_due() {
         plugin("widgets@acme", "1.0.0"),
         plugin("gadgets@acme", "2.0.0"),
     ];
-    let available = vec![
-        available_plugin("widgets@acme", "2.0.0"),
-        available_plugin("gadgets@acme", "2.0.0"),
-    ];
+    let available = catalogue(&[
+        ("widgets@acme", versioned("2.0.0")),
+        ("gadgets@acme", versioned("2.0.0")),
+    ]);
     let skills = vec![
         skill("behind", Provenance::GitClone, "/skills/behind"),
         skill("current", Provenance::GitClone, "/skills/current"),
@@ -417,24 +449,6 @@ fn stale_ids_name_every_list_the_report_calls_due() {
     assert!(stale.mcp_servers.is_empty());
 }
 
-/// The state `update_all` refuses to act on: listing it as due would promise work the run skips.
-#[test]
-fn stale_ids_leave_out_a_plugin_whose_catalogue_entry_names_no_version() {
-    let plugins = vec![plugin("widgets@acme", "1.0.0")];
-    let available = vec![versionless_plugin("widgets@acme")];
-
-    let report = default_checker().check(&[], &plugins, &available, &[], &[]);
-
-    assert_eq!(
-        report.plugins["widgets@acme#user"],
-        UpdateState::UpdateAvailable {
-            installed: "1.0.0".to_string(),
-            latest: "unknown".to_string()
-        }
-    );
-    assert!(report.stale_ids().plugins.is_empty());
-}
-
 #[test]
 fn stale_ids_include_an_mcp_server_the_registry_says_is_behind() {
     let checker = UpdateChecker::new(
@@ -446,7 +460,9 @@ fn stale_ids_include_an_mcp_server_the_registry_says_is_behind() {
         stdio_config("npx", &["-y", "slow@1.0.0"]),
     )];
 
-    let stale = checker.check(&[], &[], &[], &[], &servers).stale_ids();
+    let stale = checker
+        .check(&[], &[], &PluginCatalogue::default(), &[], &servers)
+        .stale_ids();
 
     assert_eq!(stale.mcp_servers, vec!["user/slow".to_string()]);
 }
@@ -458,11 +474,11 @@ fn two_versions_that_cannot_be_ordered_are_unknown_rather_than_an_update() {
         plugin("empty@acme", ""),
         plugin("prefixed@acme", "1.0.0"),
     ];
-    let available = vec![
-        available_plugin("prerelease@acme", "1.9.0-rc.1"),
-        available_plugin("empty@acme", "1.0.0"),
-        available_plugin("prefixed@acme", "v1.0.0"),
-    ];
+    let available = catalogue(&[
+        ("prerelease@acme", versioned("1.9.0-rc.1")),
+        ("empty@acme", versioned("1.0.0")),
+        ("prefixed@acme", versioned("v1.0.0")),
+    ]);
 
     let report = default_checker().check(&[], &installed, &available, &[], &[]);
 
@@ -481,7 +497,13 @@ fn a_directory_sourced_marketplace_is_never_probed() {
     let git = FakeGitProbe::with_counts([("/repos/local", 4), ("/repos/plain", 1)]);
     let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
 
-    let report = checker.check(&[local, plain_git], &[], &[], &[], &[]);
+    let report = checker.check(
+        &[local, plain_git],
+        &[],
+        &PluginCatalogue::default(),
+        &[],
+        &[],
+    );
 
     assert_eq!(report.marketplaces["local"], UpdateState::Unknown);
     assert_eq!(
@@ -504,7 +526,7 @@ fn mcp_pins_ahead_of_or_beside_the_registry_are_not_updates() {
         mcp_server("odd", stdio_config("npx", &["-y", "odd@2.0.0-rc.1"])),
     ];
 
-    let report = checker.check(&[], &[], &[], &[], &servers);
+    let report = checker.check(&[], &[], &PluginCatalogue::default(), &[], &servers);
 
     assert_eq!(report.mcp_servers["user/ranged"], UpdateState::TracksLatest);
     assert_eq!(report.mcp_servers["user/ahead"], UpdateState::UpToDate);

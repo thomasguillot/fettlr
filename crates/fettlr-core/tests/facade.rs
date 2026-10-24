@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient, FakeTrasher, TempTree};
 use fettlr_core::{
     CliOutput, CliRunner, CoreError, Fettlr, Scope, UpdateItemKind, UpdateProgress, UpdateStage,
-    Watcher,
+    UpdateState, Watcher,
 };
 use serde_json::json;
 
@@ -19,6 +19,8 @@ const PLUGIN_LIST: &str = r#"[
     "installPath": "/fake/home/.claude/plugins/cache/acme/widgets/1.0.0"
   }
 ]"#;
+
+const PLUGIN_LIST_AVAILABLE: &str = include_str!("fixtures/plugin-list-available.json");
 
 const MARKETPLACE_LIST: &str = r#"[
   {
@@ -384,6 +386,37 @@ mod checking_for_updates {
         assert!(!checked.cli_available);
         assert!(checked.available_plugins.is_empty());
     }
+    #[test]
+    fn check_updates_judges_installed_plugins_against_the_marketplace_on_disk() {
+        let tree = TempTree::new();
+        let runner = Arc::new(ScriptedCliRunner::new());
+        runner.set_plugin_list(PLUGIN_LIST_AVAILABLE);
+        let dir = tree.write_marketplace(
+            "accesslint",
+            json!({"source": "github", "repo": "accesslint/accesslint"}),
+            json!([{"name": "accesslint", "version": "0.10.2", "source": "./plugins/accesslint"}]),
+        );
+        tree.write_plugin_manifest(&dir, "./plugins/accesslint", Some("0.10.3"));
+        let fettlr = fettlr_with(runner, &tree);
+
+        fettlr.refresh().expect("refresh succeeds");
+        let snapshot = fettlr.check_updates().expect("check_updates succeeds");
+
+        let report = snapshot.update_report.expect("report");
+        assert_eq!(
+            report.plugins["accesslint@accesslint#user"],
+            UpdateState::UpdateAvailable {
+                installed: "0.10.2".to_string(),
+                latest: "0.10.3".to_string()
+            }
+        );
+        assert!(
+            report
+                .stale_ids()
+                .plugins
+                .contains(&"accesslint@accesslint#user".to_string())
+        );
+    }
 }
 
 mod mutations {
@@ -485,14 +518,7 @@ mod mutations {
       "installPath": "/fake/home/.claude/plugins/cache/acme/widgets/1.0.0"
     }
   ],
-  "available": [
-    {
-      "pluginId": "widgets@acme",
-      "name": "widgets",
-      "marketplaceName": "acme",
-      "version": "2.0.0"
-    }
-  ]
+  "available": []
 }"#,
         );
         runner.fail_when_args_start_with(&["plugin", "update", "widgets@acme"]);
@@ -501,6 +527,12 @@ mod mutations {
             ("/fake/marketplaces/acme".to_string(), 3),
             (skill_path.display().to_string(), 2),
         ]));
+
+        tree.write_marketplace(
+            "acme",
+            json!({"source": "github", "repo": "acme/marketplace"}),
+            json!([{"name": "widgets", "version": "2.0.0", "source": "./plugins/widgets"}]),
+        );
 
         let mut paths = tree.paths.clone();
         paths.binary_override = Some(fake_binary_path());
@@ -647,7 +679,7 @@ mod mutations {
     }
 
     #[test]
-    fn update_all_leaves_alone_a_plugin_whose_catalogue_entry_names_no_version() {
+    fn update_all_leaves_alone_a_plugin_whose_catalogue_names_no_version() {
         let tree = TempTree::new();
         let runner = Arc::new(ScriptedCliRunner::new());
         runner.set_marketplace_list("[]");
@@ -662,14 +694,14 @@ mod mutations {
       "installPath": "/fake/home/.claude/plugins/cache/acme/widgets/1.0.0"
     }
   ],
-  "available": [
-    {
-      "pluginId": "widgets@acme",
-      "name": "widgets",
-      "marketplaceName": "acme"
-    }
-  ]
+  "available": []
 }"#,
+        );
+
+        tree.write_marketplace(
+            "acme",
+            json!({"source": "github", "repo": "acme/marketplace"}),
+            json!([{"name": "widgets", "source": "./plugins/widgets"}]),
         );
 
         let mut paths = tree.paths.clone();
@@ -712,15 +744,14 @@ mod mutations {
       "installPath": "/fake/home/.claude/plugins/cache/acme/widgets/1.0.0"
     }
   ],
-  "available": [
-    {
-      "pluginId": "widgets@acme",
-      "name": "widgets",
-      "marketplaceName": "acme",
-      "version": "2.0.0"
-    }
-  ]
+  "available": []
 }"#,
+        );
+
+        tree.write_marketplace(
+            "acme",
+            json!({"source": "github", "repo": "acme/marketplace"}),
+            json!([{"name": "widgets", "version": "2.0.0", "source": "./plugins/widgets"}]),
         );
 
         let mut paths = tree.paths.clone();

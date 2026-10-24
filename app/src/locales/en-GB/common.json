@@ -221,9 +221,23 @@
       "pull": "Pull",
       "deleteTitle": "Delete this skill?",
       "deleteDescription": "This moves \"{{name}}\" to the Trash. You can restore it from Finder if you change your mind.",
-      "source": "Source"
+      "source": "Source",
+      "accountManaged": "This skill is synced from your Claude account.",
+      "openClaudeSettings": "Open Claude settings",
+      "accountUpdatedAt": "Updated on account",
+      "newerLocalCopy": "Newer local copy",
+      "showLocalCopy": "Show"
     },
-    "provenanceSkillsCli": "Skills CLI"
+    "provenanceSkillsCli": "Skills CLI",
+    "provenanceAccount": "Claude account",
+    "accountHeading": "Claude account",
+    "account": {
+      "behind": "Local copy is newer",
+      "behindVersion": "Local copy is newer ({{version}})",
+      "noNewerCopy": "No newer local copy",
+      "package": "Package as ZIP",
+      "packageHint": "Fettlr can't change skills on your Claude account. Package the newer copy as a ZIP, then upload it in Claude's skill settings."
+    }
   },
   "subagents": {
     "listLabel": "Subagents list",

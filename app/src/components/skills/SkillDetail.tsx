@@ -21,6 +21,7 @@ import { useUpdateAction } from "../../useUpdateAction";
 import { ProvenanceBadge, ScopeBadge, UpdateStatusBadge } from "../badges";
 import { parkedScopeLabel } from "../projects";
 import type { SkillSelection } from "../parkable/selection";
+import { AccountSkillDetail } from "./AccountSkillDetail";
 
 function skillMarkdownPath(folderPath: string): string {
   return `${folderPath.replace(/\/+$/, "")}/SKILL.md`;
@@ -45,6 +46,8 @@ export function SkillDetail({
       ? (snapshot?.parkedSkills.find((candidate) => candidate.id === selection.id) ?? null)
       : null;
 
+  if (skill && skill.provenance.kind === "account")
+    return <AccountSkillDetail key={skill.id} skill={skill} />;
   if (skill) return <ActiveSkillDetail key={skill.id} skill={skill} onRemoved={onRemoved} />;
   if (parked)
     return (

@@ -11,6 +11,7 @@ import { ScreenShell, SidecarLayout, capsHeading, contentFrame, screenColumn } f
 import { parkedSearchValue, skillSearchValue } from "../searchText";
 import { ProvenanceBadge, ScopeBadge, StaleBadge } from "../badges";
 import { SkillDetail } from "./SkillDetail";
+import { accountBehindFor, describeAccountBehind, isAccountSkill } from "./accountSkills";
 import { EmptyState } from "../EmptyState";
 import { OptionRow, ParkableListbox, type OptionProps } from "../parkable/ParkableListbox";
 import { useParkableList, type SourceKind } from "../parkable/useParkableList";
@@ -25,6 +26,7 @@ const SOURCE_KINDS: readonly SourceKind[] = [
   { kind: "local", labelKey: "skills.provenanceLocal" },
   { kind: "gitClone", labelKey: "skills.provenanceGit" },
   { kind: "skillsCli", labelKey: "skills.provenanceSkillsCli" },
+  { kind: "account", labelKey: "skills.provenanceAccount" },
 ];
 
 function skillUpdateState(
@@ -59,6 +61,7 @@ export function SkillsList() {
     activeSearchValue: skillSearchValue,
     activeSortKey: skillSortKey,
     parkedSearchValue,
+    trailing: isAccountSkill,
   });
 
   return (
@@ -102,6 +105,15 @@ export function SkillsList() {
                 label={t("skills.listLabel")}
                 activeDomId={list.activeDomId}
                 onKeyDown={list.handleListKeyDown}
+                trailingHeading={t("skills.accountHeading")}
+                trailingRows={list.filteredTrailing.map((skill) => (
+                  <SkillRow
+                    key={skill.id}
+                    skill={skill}
+                    state={skillUpdateState(updateReport, skill.id)}
+                    {...list.optionProps("skill", skill.id)}
+                  />
+                ))}
                 parkedHeading={t("skills.parkedHeading")}
                 parkedRows={list.filteredParked.map((parked) => (
                   <ParkedSkillRow
@@ -137,7 +149,10 @@ function SkillRow({
   state: UiUpdateState | undefined;
 }) {
   const { t } = useTranslation();
-  const pending = describeUpdateState(state, t);
+  const behind = useFettlr((store) =>
+    isAccountSkill(skill) ? accountBehindFor(store.snapshot, skill.id) : undefined,
+  );
+  const pending = behind ? describeAccountBehind(behind, t) : describeUpdateState(state, t);
   return (
     <OptionRow gridClassName={rowGrid} {...option}>
       <span className="flex min-w-0 items-center gap-2">

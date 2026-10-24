@@ -74,6 +74,7 @@ function snapshotWith(overrides: Partial<UiSnapshot>): UiSnapshot {
     cliAvailable: true,
     skills: [],
     parkedSkills: [],
+    accountSkillsBehind: [],
     subagents: [],
     parkedSubagents: [],
     plugins: [],

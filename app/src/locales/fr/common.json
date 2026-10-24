@@ -221,9 +221,23 @@
       "pull": "Récupérer",
       "deleteTitle": "Supprimer cette compétence ?",
       "deleteDescription": "Ceci déplace « {{name}} » dans la Corbeille. Vous pouvez la restaurer depuis le Finder si vous changez d'avis.",
-      "source": "Source"
+      "source": "Source",
+      "accountManaged": "Cette compétence est synchronisée depuis votre compte Claude.",
+      "openClaudeSettings": "Ouvrir les réglages de Claude",
+      "accountUpdatedAt": "Mise à jour sur le compte",
+      "newerLocalCopy": "Copie locale plus récente",
+      "showLocalCopy": "Afficher"
     },
-    "provenanceSkillsCli": "CLI Skills"
+    "provenanceSkillsCli": "CLI Skills",
+    "provenanceAccount": "Compte Claude",
+    "accountHeading": "Compte Claude",
+    "account": {
+      "behind": "Copie locale plus récente",
+      "behindVersion": "Copie locale plus récente ({{version}})",
+      "noNewerCopy": "Aucune copie locale plus récente",
+      "package": "Exporter en ZIP",
+      "packageHint": "Fettlr ne peut pas modifier les compétences de votre compte Claude. Exportez la copie la plus récente en ZIP, puis importez-la dans les réglages des compétences de Claude."
+    }
   },
   "subagents": {
     "listLabel": "Liste des sous-agents",

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -5,8 +6,8 @@ use std::time::Duration;
 use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient};
 use fettlr_core::{
     CatalogueVersion, CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer,
-    McpServerConfig, PluginCatalogue, PluginRecord, Provenance, Scope, Skill, UpdateChecker,
-    UpdateState,
+    McpServerConfig, PluginCatalogue, PluginRecord, Provenance, Scope, Skill, SkillsCliOrigin,
+    UpdateChecker, UpdateState,
 };
 
 fn marketplace(name: &str, install_location: &str) -> MarketplaceRecord {
@@ -121,6 +122,40 @@ impl GitProbing for CountingGitProbe {
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
         Ok(())
+    }
+
+    fn fetch_source(
+        &self,
+        _url: &str,
+        _reference: Option<&str>,
+        _cache_repo: &Path,
+    ) -> Result<String, CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
+    }
+
+    fn tree_sha(
+        &self,
+        _cache_repo: &Path,
+        _commit: &str,
+        _folder: &str,
+    ) -> Result<Option<String>, CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
+    }
+
+    fn export_folder(
+        &self,
+        _cache_repo: &Path,
+        _commit: &str,
+        _folder: &str,
+        _destination: &Path,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NoUpstream {
+            repo: String::new(),
+        })
     }
 }
 
@@ -531,4 +566,292 @@ fn mcp_pins_ahead_of_or_beside_the_registry_are_not_updates() {
     assert_eq!(report.mcp_servers["user/ranged"], UpdateState::TracksLatest);
     assert_eq!(report.mcp_servers["user/ahead"], UpdateState::UpToDate);
     assert_eq!(report.mcp_servers["user/odd"], UpdateState::Unknown);
+}
+
+const OLD_TREE: &str = "1111111111111111111111111111111111111111";
+const NEW_TREE: &str = "2222222222222222222222222222222222222222";
+const EMIL_URL: &str = "https://github.com/emilkowalski/skills.git";
+
+fn cli_origin(source: &str, folder: &str, hash: &str) -> SkillsCliOrigin {
+    SkillsCliOrigin {
+        source: source.to_string(),
+        source_type: "github".to_string(),
+        source_url: Some(format!("https://github.com/{source}.git")),
+        reference: None,
+        folder: folder.to_string(),
+        folder_hash: hash.to_string(),
+    }
+}
+
+fn cli_skill(name: &str, source: &str, folder: &str, hash: &str) -> Skill {
+    skill(
+        name,
+        Provenance::SkillsCli(cli_origin(source, folder, hash)),
+        &format!("/agents/skills/{name}"),
+    )
+}
+
+fn cli_skill_with(name: &str, origin: SkillsCliOrigin) -> Skill {
+    skill(
+        name,
+        Provenance::SkillsCli(origin),
+        &format!("/agents/skills/{name}"),
+    )
+}
+
+fn source_checker(git: Arc<FakeGitProbe>) -> UpdateChecker {
+    UpdateChecker::new(git, Arc::new(FakeRegistryClient::new()))
+        .with_source_cache(PathBuf::from("/cache/skill-sources"))
+}
+
+fn check_skills(checker: &UpdateChecker, skills: &[Skill]) -> fettlr_core::UpdateReport {
+    checker.check(&[], &[], &PluginCatalogue::default(), skills, &[])
+}
+
+#[test]
+fn a_skills_cli_skill_matching_its_lock_hash_is_up_to_date() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/motion", OLD_TREE)]),
+    )]));
+    let checker = source_checker(git);
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "motion",
+            "emilkowalski/skills",
+            "skills/motion",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/motion"], UpdateState::UpToDate);
+}
+
+#[test]
+fn a_skills_cli_skill_whose_folder_changed_upstream_is_source_changed() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/motion", NEW_TREE)]),
+    )]));
+    let checker = source_checker(git);
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "motion",
+            "emilkowalski/skills",
+            "skills/motion",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/motion"], UpdateState::SourceChanged);
+    assert!(
+        report
+            .stale_ids()
+            .skills
+            .contains(&"user/motion".to_string())
+    );
+}
+
+#[test]
+fn skills_from_one_source_share_one_fetch() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([
+            ("skills/a", NEW_TREE),
+            ("skills/b", NEW_TREE),
+            ("skills/c", OLD_TREE),
+        ]),
+    )]));
+    let checker = source_checker(git.clone());
+
+    let report = check_skills(
+        &checker,
+        &[
+            cli_skill("a", "emilkowalski/skills", "skills/a", OLD_TREE),
+            cli_skill("b", "emilkowalski/skills", "skills/b", OLD_TREE),
+            cli_skill("c", "emilkowalski/skills", "skills/c", OLD_TREE),
+        ],
+    );
+
+    assert_eq!(git.fetch_count(EMIL_URL), 1);
+    assert_eq!(report.skills["user/a"], UpdateState::SourceChanged);
+    assert_eq!(report.skills["user/b"], UpdateState::SourceChanged);
+    assert_eq!(report.skills["user/c"], UpdateState::UpToDate);
+}
+
+#[test]
+fn an_unreachable_source_leaves_only_its_skills_unknown() {
+    let git = Arc::new(
+        FakeGitProbe::with_sources([(
+            EMIL_URL,
+            "c0ffee",
+            BTreeMap::from([("skills/motion", NEW_TREE)]),
+        )])
+        .with_unreachable_source("https://github.com/gone/skills.git"),
+    );
+    let checker = source_checker(git);
+
+    let report = check_skills(
+        &checker,
+        &[
+            cli_skill("lost", "gone/skills", "skills/lost", OLD_TREE),
+            cli_skill("motion", "emilkowalski/skills", "skills/motion", OLD_TREE),
+        ],
+    );
+
+    assert_eq!(report.skills["user/lost"], UpdateState::Unknown);
+    assert_eq!(report.skills["user/motion"], UpdateState::SourceChanged);
+}
+
+#[test]
+fn a_folder_gone_upstream_is_unknown() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/other", NEW_TREE)]),
+    )]));
+    let checker = source_checker(git);
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "motion",
+            "emilkowalski/skills",
+            "skills/motion",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/motion"], UpdateState::Unknown);
+}
+
+#[test]
+fn a_non_github_or_hashless_entry_is_unknown() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/a", NEW_TREE), ("skills/b", NEW_TREE)]),
+    )]));
+    let checker = source_checker(git.clone());
+
+    let mut not_github = cli_origin("emilkowalski/skills", "skills/a", OLD_TREE);
+    not_github.source_type = "git".to_string();
+    let sha256 = "a".repeat(64);
+
+    let report = check_skills(
+        &checker,
+        &[
+            cli_skill_with("a", not_github),
+            cli_skill("b", "emilkowalski/skills", "skills/b", &sha256),
+        ],
+    );
+
+    assert_eq!(report.skills["user/a"], UpdateState::Unknown);
+    assert_eq!(report.skills["user/b"], UpdateState::Unknown);
+    assert_eq!(git.fetch_count(EMIL_URL), 0);
+}
+
+#[test]
+fn a_non_https_source_url_is_unknown() {
+    let git = Arc::new(FakeGitProbe::new());
+    let checker = source_checker(git.clone());
+
+    let urls = [
+        Some("file:///etc/passwd"),
+        Some("git@github.com:emilkowalski/skills.git"),
+        Some("ssh://git@github.com/emilkowalski/skills.git"),
+        Some("http://github.com/emilkowalski/skills.git"),
+        None,
+    ];
+    let skills: Vec<Skill> = urls
+        .iter()
+        .enumerate()
+        .map(|(index, url)| {
+            let mut origin = cli_origin("emilkowalski/skills", "skills/a", OLD_TREE);
+            origin.source_url = url.map(str::to_string);
+            cli_skill_with(&format!("s{index}"), origin)
+        })
+        .collect();
+
+    let report = check_skills(&checker, &skills);
+
+    for index in 0..urls.len() {
+        assert_eq!(
+            report.skills[&format!("user/s{index}")],
+            UpdateState::Unknown
+        );
+    }
+    for url in urls.into_iter().flatten() {
+        assert_eq!(git.fetch_count(url), 0);
+    }
+}
+
+#[test]
+fn without_a_source_cache_skills_cli_skills_are_unknown() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/motion", NEW_TREE)]),
+    )]));
+    let checker = UpdateChecker::new(git.clone(), Arc::new(FakeRegistryClient::new()));
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "motion",
+            "emilkowalski/skills",
+            "skills/motion",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/motion"], UpdateState::Unknown);
+    assert_eq!(git.fetch_count(EMIL_URL), 0);
+}
+
+#[test]
+fn a_skill_with_a_reference_fetches_that_reference() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("skills/motion", OLD_TREE)]),
+    )]));
+    let checker = source_checker(git.clone());
+    let mut origin = cli_origin("emilkowalski/skills", "skills/motion", OLD_TREE);
+    origin.reference = Some("next".to_string());
+
+    let report = check_skills(&checker, &[cli_skill_with("motion", origin)]);
+
+    assert_eq!(report.skills["user/motion"], UpdateState::UpToDate);
+    assert_eq!(git.fetched_references(), vec![Some("next".to_string())]);
+}
+
+#[test]
+fn a_skills_cli_folder_that_climbs_out_of_the_source_is_unknown_without_a_fetch() {
+    let git = Arc::new(FakeGitProbe::with_sources([(
+        EMIL_URL,
+        "c0ffee",
+        BTreeMap::from([("../../evil", NEW_TREE)]),
+    )]));
+    let checker = source_checker(git.clone());
+
+    let report = check_skills(
+        &checker,
+        &[cli_skill(
+            "evil",
+            "emilkowalski/skills",
+            "../../evil",
+            OLD_TREE,
+        )],
+    );
+
+    assert_eq!(report.skills["user/evil"], UpdateState::Unknown);
+    assert_eq!(git.fetch_count(EMIL_URL), 0);
 }

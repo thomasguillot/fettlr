@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use crate::civil_time;
 use crate::cli_records::{CoreError, MarketplaceRecord, PluginRecord};
 use crate::mcp::McpServer;
 use crate::models::{UNKNOWN_VERSION, UpdateState};
-use crate::skills::{Provenance, Skill};
+use crate::skills::{Provenance, Skill, SkillsCliOrigin};
 
 use super::git::GitProbing;
 use super::package_spec::PackageSpec;
@@ -61,7 +61,10 @@ pub struct UpdateChecker {
     git: Arc<dyn GitProbing>,
     registry: Arc<dyn RegistryClient>,
     registry_timeout: Duration,
+    source_cache: Option<PathBuf>,
 }
+
+type SourceHeads = Mutex<BTreeMap<PathBuf, Arc<OnceLock<Option<String>>>>>;
 
 impl UpdateChecker {
     const MAX_IN_FLIGHT: usize = 6;
@@ -80,7 +83,15 @@ impl UpdateChecker {
             git,
             registry,
             registry_timeout,
+            source_cache: None,
         }
+    }
+
+    /// Lets skills installed by the skills CLI be checked, by fetching their sources into `dir`.
+    /// Without it every such skill is `Unknown`.
+    pub fn with_source_cache(mut self, dir: PathBuf) -> Self {
+        self.source_cache = Some(dir);
+        self
     }
 
     /// Checks every item the app can badge, in one pass. Never fails as a whole: a failure on one
@@ -96,6 +107,8 @@ impl UpdateChecker {
         skills: &[Skill],
         mcp: &[McpServer],
     ) -> UpdateReport {
+        let heads: SourceHeads = Mutex::new(BTreeMap::new());
+        let heads = &heads;
         let mut jobs: Vec<Job<'_>> = Vec::new();
 
         for record in marketplaces {
@@ -117,10 +130,11 @@ impl UpdateChecker {
 
         for skill in skills {
             let git = self.git.as_ref();
+            let cache = self.source_cache.as_deref();
             jobs.push(Job {
                 target: Target::Skill,
                 id: skill.id.clone(),
-                compute: Box::new(move || skill_state(skill, git)),
+                compute: Box::new(move || skill_state(skill, git, cache, heads)),
             });
         }
 
@@ -214,11 +228,112 @@ fn marketplace_state(record: &MarketplaceRecord, git: &dyn GitProbing) -> Update
     behind_state(git.behind_count(Path::new(&record.install_location)))
 }
 
-fn skill_state(skill: &Skill, git: &dyn GitProbing) -> UpdateState {
-    if skill.provenance != Provenance::GitClone {
-        return UpdateState::Unknown;
+fn skill_state(
+    skill: &Skill,
+    git: &dyn GitProbing,
+    source_cache: Option<&Path>,
+    heads: &SourceHeads,
+) -> UpdateState {
+    match &skill.provenance {
+        Provenance::GitClone => behind_state(git.behind_count(&skill.path)),
+        Provenance::SkillsCli(origin) => match source_cache {
+            Some(cache) => source_state(origin, git, cache, heads),
+            None => UpdateState::Unknown,
+        },
+        _ => UpdateState::Unknown,
     }
-    behind_state(git.behind_count(&skill.path))
+}
+
+fn is_tree_sha(value: &str) -> bool {
+    value.len() == 40 && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn source_state(
+    origin: &SkillsCliOrigin,
+    git: &dyn GitProbing,
+    cache_root: &Path,
+    heads: &SourceHeads,
+) -> UpdateState {
+    let Some(url) = checkable_source_url(origin) else {
+        return UpdateState::Unknown;
+    };
+
+    let Some(repo) = skill_source_repo(cache_root, origin) else {
+        return UpdateState::Unknown;
+    };
+    let slot = Arc::clone(
+        heads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(repo.clone())
+            .or_default(),
+    );
+    let head = slot.get_or_init(|| {
+        git.fetch_source(url, origin.reference.as_deref(), &repo)
+            .ok()
+    });
+    let Some(commit) = head else {
+        return UpdateState::Unknown;
+    };
+
+    match git.tree_sha(&repo, commit, &origin.folder) {
+        Ok(Some(latest)) if latest.eq_ignore_ascii_case(&origin.folder_hash) => {
+            UpdateState::UpToDate
+        }
+        Ok(Some(_)) => UpdateState::SourceChanged,
+        Ok(None) | Err(_) => UpdateState::Unknown,
+    }
+}
+
+/// The url to fetch for an origin Fettlr can both check and update, or `None` when it can do
+/// neither. The check and the update both ask this, so they never disagree about a skill.
+pub(crate) fn checkable_source_url(origin: &SkillsCliOrigin) -> Option<&str> {
+    let url = origin
+        .source_url
+        .as_deref()
+        .filter(|url| url.starts_with("https://"))?;
+    let folder_stays_inside = Path::new(&origin.folder)
+        .components()
+        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
+    (origin.source_type == "github" && is_tree_sha(&origin.folder_hash) && folder_stays_inside)
+        .then_some(url)
+}
+
+/// The cache repository for one `(source url, reference)` pair under `cache_root`, or `None` when
+/// the source names no usable directory. The check and the update both go through this so they
+/// share one fetch. The name is lowercased for case-insensitive volumes and carries a hash of the
+/// raw url and reference so keys the sanitizer folds together stay apart.
+pub(crate) fn skill_source_repo(cache_root: &Path, origin: &SkillsCliOrigin) -> Option<PathBuf> {
+    let sanitize = |value: &str| -> String {
+        value
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    };
+    let mut key = sanitize(&origin.source);
+    if key.chars().all(|c| c == '.') {
+        return None;
+    }
+    if let Some(reference) = &origin.reference {
+        key.push('@');
+        key.push_str(&sanitize(reference));
+    }
+    let mut raw = origin.source_url.clone().unwrap_or_default().into_bytes();
+    raw.push(0);
+    raw.extend_from_slice(origin.reference.as_deref().unwrap_or("").as_bytes());
+    Some(cache_root.join(format!("{key}-{:08x}", fnv1a(&raw))))
+}
+
+fn fnv1a(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 fn behind_state(result: Result<u32, CoreError>) -> UpdateState {
@@ -347,4 +462,64 @@ fn registry_lookup_with_timeout(
             command: "registry lookup".to_string(),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn origin(source: &str, url: &str, reference: Option<&str>) -> SkillsCliOrigin {
+        SkillsCliOrigin {
+            source: source.to_string(),
+            source_type: "github".to_string(),
+            source_url: Some(url.to_string()),
+            reference: reference.map(str::to_string),
+            folder: "skills/a".to_string(),
+            folder_hash: "0".repeat(40),
+        }
+    }
+
+    #[test]
+    fn a_source_key_of_only_dots_or_empty_has_no_cache_repo() {
+        let root = Path::new("/cache/skill-sources");
+        for source in ["", ".", ".."] {
+            assert_eq!(
+                skill_source_repo(root, &origin(source, "https://x/y.git", None)),
+                None
+            );
+        }
+        let inside = skill_source_repo(root, &origin("../x", "https://x/y.git", None))
+            .expect("a repo for ../x");
+        assert!(inside.starts_with(root));
+    }
+
+    #[test]
+    fn the_cache_repo_name_is_stable_and_separates_url_and_reference() {
+        let root = Path::new("/cache/skill-sources");
+        let url = "https://github.com/emilkowalski/skills.git";
+        assert_eq!(
+            skill_source_repo(root, &origin("emilkowalski/skills", url, None)),
+            Some(root.join("emilkowalski_skills-64c61f24"))
+        );
+
+        let slash = skill_source_repo(root, &origin("o/r", url, Some("feature/x"))).unwrap();
+        let underscore = skill_source_repo(root, &origin("o/r", url, Some("feature_x"))).unwrap();
+        assert_ne!(slash, underscore);
+
+        let upper = skill_source_repo(
+            root,
+            &origin("Owner/skills", "https://github.com/Owner/skills.git", None),
+        )
+        .unwrap();
+        let lower = skill_source_repo(
+            root,
+            &origin("owner/skills", "https://github.com/owner/skills.git", None),
+        )
+        .unwrap();
+        assert_ne!(upper, lower);
+
+        for path in [&slash, &underscore, &upper, &lower] {
+            assert!(path.starts_with(root));
+        }
+    }
 }

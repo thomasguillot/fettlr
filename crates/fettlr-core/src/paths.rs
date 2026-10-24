@@ -49,6 +49,27 @@ impl Paths {
     pub fn settings_json(&self) -> PathBuf {
         self.claude_dir.join("settings.json")
     }
+
+    /// The skills CLI's `~/.agents` folder, which sits beside `claude_dir`. Not to be confused
+    /// with `agents_dir`, which holds Claude Code subagents.
+    pub fn skills_cli_dir(&self) -> PathBuf {
+        self.claude_dir
+            .parent()
+            .unwrap_or(&self.claude_dir)
+            .join(".agents")
+    }
+
+    pub fn skills_cli_lock(&self) -> PathBuf {
+        self.skills_cli_dir().join(".skill-lock.json")
+    }
+
+    pub fn skills_cli_skills_dir(&self) -> PathBuf {
+        self.skills_cli_dir().join("skills")
+    }
+
+    pub fn skill_sources_cache(&self) -> PathBuf {
+        self.support_dir.join("skill-sources")
+    }
 }
 
 #[cfg(test)]
@@ -109,6 +130,38 @@ mod tests {
         assert_eq!(
             fake_paths().settings_json(),
             PathBuf::from("/tmp/fake-home/.claude/settings.json")
+        );
+    }
+
+    #[test]
+    fn skills_cli_dir_sits_beside_claude_dir() {
+        assert_eq!(
+            fake_paths().skills_cli_dir(),
+            PathBuf::from("/tmp/fake-home/.agents")
+        );
+    }
+
+    #[test]
+    fn skills_cli_lock_hangs_off_skills_cli_dir() {
+        assert_eq!(
+            fake_paths().skills_cli_lock(),
+            PathBuf::from("/tmp/fake-home/.agents/.skill-lock.json")
+        );
+    }
+
+    #[test]
+    fn skills_cli_skills_dir_hangs_off_skills_cli_dir() {
+        assert_eq!(
+            fake_paths().skills_cli_skills_dir(),
+            PathBuf::from("/tmp/fake-home/.agents/skills")
+        );
+    }
+
+    #[test]
+    fn skill_sources_cache_hangs_off_support_dir() {
+        assert_eq!(
+            fake_paths().skill_sources_cache(),
+            PathBuf::from("/tmp/fake-support/skill-sources")
         );
     }
 

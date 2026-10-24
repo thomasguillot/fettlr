@@ -52,7 +52,8 @@
     "usageCountSince_one": "{{count}} fois · dernière utilisation {{when}}",
     "usageCountSince_other": "{{count}} fois · dernière utilisation {{when}}",
     "upToDate": "À jour",
-    "unknownStatus": "Inconnu"
+    "unknownStatus": "Inconnu",
+    "updateAvailable": "Mise à jour disponible"
   },
   "warnings": {
     "title_one": "Un élément n'a pas pu être lu",
@@ -219,8 +220,10 @@
       "enable": "Activer",
       "pull": "Récupérer",
       "deleteTitle": "Supprimer cette compétence ?",
-      "deleteDescription": "Ceci déplace « {{name}} » dans la Corbeille. Vous pouvez la restaurer depuis le Finder si vous changez d'avis."
-    }
+      "deleteDescription": "Ceci déplace « {{name}} » dans la Corbeille. Vous pouvez la restaurer depuis le Finder si vous changez d'avis.",
+      "source": "Source"
+    },
+    "provenanceSkillsCli": "CLI Skills"
   },
   "subagents": {
     "listLabel": "Liste des sous-agents",

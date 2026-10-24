@@ -15,5 +15,8 @@ export function describeUpdateState(
   if (state?.kind === "updateAvailable") {
     return t("common.versionChange", { installed: state.installed, latest: state.latest });
   }
+  if (state?.kind === "sourceChanged") {
+    return t("common.updateAvailable");
+  }
   return null;
 }

@@ -13,7 +13,7 @@ use tauri_specta::Event;
 
 use crate::dto::{
     UiError, UiMcpInput, UiPrefs, UiScope, UiSecretField, UiSnapshot, UiUpdateItemKind,
-    UiUpdateStage, redact, reveal_field, secret_values,
+    UiUpdateStage, redact, reveal_field, secret_values, skill_source_secrets,
 };
 use crate::prefs::Prefs;
 use crate::state::AppState;
@@ -353,7 +353,8 @@ pub async fn delete_parked_subagent(
 pub async fn pull_skill(state: State<'_, Arc<AppState>>, skill_id: String) -> Answer<UiSnapshot> {
     mutation(&state, move |fettlr| {
         let skill = find_skill(fettlr, &skill_id)?;
-        Ok((fettlr.pull_skill(&skill), Vec::new()))
+        let secrets = skill_source_secrets(std::iter::once(&skill));
+        Ok((fettlr.pull_skill(&skill), secrets))
     })
     .await
 }
@@ -603,7 +604,8 @@ pub async fn update_all(app: AppHandle, state: State<'_, Arc<AppState>>) -> Answ
                 log::warn!("could not report update progress: {error}");
             }
         };
-        snapshot_of(fettlr.update_all(&report))
+        let secrets = skill_source_secrets(fettlr.snapshot().skills.iter());
+        scrubbed(snapshot_of(fettlr.update_all(&report)), &secrets)
     })
     .await
 }
@@ -1335,6 +1337,73 @@ mod tests {
         assert!(error.contains(MASK));
         assert!(!converted.warnings[0].contains(SECRET));
         assert!(converted.warnings[0].contains(MASK));
+    }
+
+    const SOURCE_URL: &str = "https://user:tok3n@github.com/a/b.git";
+
+    fn skills_cli_skill_with_secret() -> Skill {
+        Skill {
+            id: "user/animate".to_string(),
+            name: "animate".to_string(),
+            title: None,
+            summary: None,
+            scope: Scope::User,
+            provenance: fettlr_core::Provenance::SkillsCli(fettlr_core::SkillsCliOrigin {
+                source: SOURCE_URL.to_string(),
+                source_type: "git".to_string(),
+                source_url: Some(SOURCE_URL.to_string()),
+                reference: None,
+                folder: "skills/animate".to_string(),
+                folder_hash: "1111111111111111111111111111111111111111".to_string(),
+            }),
+            path: PathBuf::from("/nowhere/.claude/skills/animate"),
+        }
+    }
+
+    #[test]
+    fn a_failed_skill_update_never_puts_a_source_url_password_on_screen() {
+        let skill = skills_cli_skill_with_secret();
+        let secrets = skill_source_secrets(std::iter::once(&skill));
+
+        let answer = scrubbed(
+            snapshot_of(Err(CoreError::Cli {
+                command: format!("git ls-remote {SOURCE_URL}"),
+                stderr: format!("fatal: unable to access '{SOURCE_URL}'"),
+            })),
+            &secrets,
+        );
+
+        let error = answer.expect_err("the update failed");
+        assert!(!error.message.contains("tok3n"), "{}", error.message);
+        let detail = error.detail.expect("the stderr reaches the window");
+        assert!(!detail.contains("tok3n"), "{detail}");
+        assert!(detail.contains(MASK));
+    }
+
+    #[test]
+    fn an_update_all_failure_and_the_provenance_never_carry_a_source_url_password() {
+        let snapshot = Snapshot {
+            skills: vec![skills_cli_skill_with_secret()],
+            update_failures: vec![fettlr_core::UpdateFailure {
+                kind: fettlr_core::UpdateItemKind::Skill,
+                name: "animate".to_string(),
+                error: format!(
+                    "the command `git fetch` failed: fatal: unable to access '{SOURCE_URL}'"
+                ),
+            }],
+            ..Snapshot::default()
+        };
+
+        let converted = UiSnapshot::from(snapshot);
+
+        let error = &converted.update_failures[0].error;
+        assert!(!error.contains("tok3n"), "{error}");
+        assert!(error.contains(MASK));
+        let crate::dto::UiProvenance::SkillsCli { source } = &converted.skills[0].provenance else {
+            panic!("expected skills CLI provenance");
+        };
+        assert!(!source.contains("tok3n"), "{source}");
+        assert_eq!(source, &format!("https://user:{MASK}@github.com/a/b.git"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { Badge, cn } from "@fettlr/design-system";
-import { RiGitBranchLine, RiHardDrive2Line, RiPuzzleLine } from "@remixicon/react";
+import { RiGitBranchLine, RiHardDrive2Line, RiPuzzleLine, RiTerminalBoxLine } from "@remixicon/react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,16 +24,22 @@ export function ScopeBadge({ scope }: { scope: UiScope }) {
   );
 }
 
+function provenanceDisplay(provenance: UiProvenance, t: (key: string) => string) {
+  switch (provenance.kind) {
+    case "local":
+      return { Icon: RiHardDrive2Line, label: t("skills.provenanceLocal") };
+    case "gitClone":
+      return { Icon: RiGitBranchLine, label: t("skills.provenanceGit") };
+    case "skillsCli":
+      return { Icon: RiTerminalBoxLine, label: t("skills.provenanceSkillsCli") };
+    case "plugin":
+      return { Icon: RiPuzzleLine, label: t("skills.provenancePlugin") };
+  }
+}
+
 export function ProvenanceBadge({ provenance }: { provenance: UiProvenance }) {
   const { t } = useTranslation();
-  const Icon =
-    provenance.kind === "local" ? RiHardDrive2Line : provenance.kind === "gitClone" ? RiGitBranchLine : RiPuzzleLine;
-  const label =
-    provenance.kind === "local"
-      ? t("skills.provenanceLocal")
-      : provenance.kind === "gitClone"
-        ? t("skills.provenanceGit")
-        : t("skills.provenancePlugin");
+  const { Icon, label } = provenanceDisplay(provenance, t);
   return (
     <Badge tone="neutral" variant="soft" className="shrink-0">
       <Icon aria-hidden="true" />
@@ -103,7 +109,7 @@ export function UpdateStatusBadge({
   tracksLatest = false,
 }: {
   state: UiUpdateState | undefined;
-  pending: "behind" | "updateAvailable";
+  pending: "behind" | "updateAvailable" | "sourceChanged";
   stale?: boolean;
   tracksLatest?: boolean;
 }) {

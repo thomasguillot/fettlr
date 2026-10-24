@@ -3,12 +3,14 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::models::Scope;
+use crate::skills::SkillsCliOrigin;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum Provenance {
     Local,
     GitClone,
     Plugin { plugin_id: String },
+    SkillsCli(SkillsCliOrigin),
 }
 
 #[derive(Clone, Debug, Serialize)]

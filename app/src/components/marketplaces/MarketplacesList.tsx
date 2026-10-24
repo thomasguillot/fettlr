@@ -28,6 +28,7 @@ import { useSidecarRows } from "../useSidecarRows";
 import { marketplaceSearchValue, matchesText } from "../searchText";
 import { AddMarketplaceDialog } from "./AddMarketplaceDialog";
 import { MarketplaceDetail } from "./MarketplaceDetail";
+import { installedFromMarketplace } from "./installedCount";
 import { EmptyState } from "../EmptyState";
 
 const EMPTY_MARKETPLACES: UiMarketplace[] = [];
@@ -209,9 +210,7 @@ export function MarketplacesList() {
                   <TableBody ref={bodyRef}>
                     {filteredMarketplaces.map((marketplace) => {
                       const state = updateReport?.marketplaces[marketplace.name];
-                      const installedCount = plugins.filter(
-                        (plugin) => plugin.marketplaceName === marketplace.name,
-                      ).length;
+                      const installedCount = installedFromMarketplace(plugins, marketplace.name);
                       const availableCount = new Set(
                         availablePlugins
                           .filter((plugin) => plugin.marketplaceName === marketplace.name)
@@ -224,10 +223,17 @@ export function MarketplacesList() {
                           className={cn("hover:bg-bg-subtle", insetFocusRing)}
                         >
                           <TableCell className="font-medium text-text">
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate">{marketplace.name}</span>
-                              {staleMarketplaces.has(marketplace.name) ? (
-                                <StaleBadge>{describeUpdateState(state, t)}</StaleBadge>
+                            <span className="flex min-w-0 flex-col">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate">{marketplace.name}</span>
+                                {staleMarketplaces.has(marketplace.name) ? (
+                                  <StaleBadge>{describeUpdateState(state, t)}</StaleBadge>
+                                ) : null}
+                              </span>
+                              {installedCount === 0 ? (
+                                <span className="truncate text-xs font-normal text-text-muted">
+                                  {t("marketplaces.nothingInstalled")}
+                                </span>
                               ) : null}
                             </span>
                           </TableCell>

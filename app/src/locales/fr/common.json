@@ -345,7 +345,8 @@
       "sourceLabel": "Source",
       "sourcePlaceholder": "https://github.com/owner/repo",
       "submit": "Ajouter"
-    }
+    },
+    "nothingInstalled": "Aucune extension installée depuis cette place de marché"
   },
   "mcp": {
     "addButton": "Ajouter un serveur MCP",

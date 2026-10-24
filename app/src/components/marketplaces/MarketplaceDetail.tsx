@@ -10,6 +10,7 @@ import { staleIds } from "../../sections";
 import { useFettlr } from "../../store";
 import { useUpdateAction } from "../../useUpdateAction";
 import { UpdateStatusBadge } from "../badges";
+import { installedFromMarketplace } from "./installedCount";
 
 export function MarketplaceDetail({
   marketplaceName,
@@ -54,6 +55,7 @@ function ActiveMarketplaceDetail({
   const dependentPlugins = (snapshot?.plugins ?? []).filter(
     (plugin) => plugin.marketplaceName === marketplace.name,
   );
+  const installedCount = installedFromMarketplace(snapshot?.plugins ?? [], marketplace.name);
   const availableCount = new Set(
     (snapshot?.availablePlugins ?? [])
       .filter((plugin) => plugin.marketplaceName === marketplace.name)
@@ -86,7 +88,7 @@ function ActiveMarketplaceDetail({
             {marketplace.installLocation}
           </code>
         </DetailRow>
-        <DetailRow label={t("marketplaces.detail.installedCount")}>{dependentPlugins.length}</DetailRow>
+        <DetailRow label={t("marketplaces.detail.installedCount")}>{installedCount}</DetailRow>
         <DetailRow label={t("marketplaces.detail.availableCount")}>{availableCount}</DetailRow>
         <DetailRow label={t("marketplaces.detail.updateStatus")}>
           <UpdateStatusBadge state={state} pending="behind" />

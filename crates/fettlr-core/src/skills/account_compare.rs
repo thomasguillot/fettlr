@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::civil_time::parse_rfc3339;
 use crate::frontmatter::{markdown_body, parse_frontmatter};
@@ -82,6 +83,69 @@ fn behind(
             local_id: best.skill.id.clone(),
             local_version: best.version.clone(),
         })
+}
+
+fn hash_copy(copy: &SkillCopy) -> Option<String> {
+    let mut hasher = Sha256::new();
+    for (key, path) in &copy.files {
+        let bytes = if key == "SKILL.md" {
+            let markdown = std::fs::read_to_string(path).ok()?;
+            let mut normalized = markdown_body(&markdown);
+            for (field, value) in frontmatter_without_version(&markdown) {
+                normalized.push_str(&format!("\n{field}\u{0}{value}"));
+            }
+            normalized.into_bytes()
+        } else {
+            std::fs::read(path).ok()?
+        };
+        hasher.update((key.len() as u64).to_le_bytes());
+        hasher.update(key.as_bytes());
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
+}
+
+/// A digest per same-name local copy of the account skill, keyed by skill id, under the same
+/// normalisation `same_content` applies. `None` when the account skill or any such copy cannot
+/// be read right now, so a half-readable pass never decides anything.
+pub(crate) fn candidate_fingerprints(
+    skills: &[Skill],
+    account_id: &str,
+) -> Option<BTreeMap<String, String>> {
+    let account = skills.iter().find(|skill| {
+        skill.id == account_id && matches!(skill.provenance, Provenance::Account { .. })
+    })?;
+    let mut prints = BTreeMap::new();
+    for candidate in skills.iter().filter(|c| is_candidate(c, account)) {
+        prints.insert(candidate.id.clone(), hash_copy(&read_copy(candidate)?)?);
+    }
+    (!prints.is_empty()).then_some(prints)
+}
+
+/// Ids of account skills that were read successfully and match a same-name local copy.
+pub(crate) fn account_skills_caught_up(skills: &[Skill]) -> Vec<String> {
+    skills
+        .iter()
+        .filter(|skill| matches!(skill.provenance, Provenance::Account { .. }))
+        .filter(|account| {
+            let Some(account_copy) = read_copy(account) else {
+                return false;
+            };
+            skills
+                .iter()
+                .filter(|candidate| is_candidate(candidate, account))
+                .filter_map(read_copy)
+                .any(|candidate| same_content(&account_copy, &candidate))
+        })
+        .map(|skill| skill.id.clone())
+        .collect()
 }
 
 fn is_candidate(candidate: &Skill, account: &Skill) -> bool {

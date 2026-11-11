@@ -1,5 +1,5 @@
 import { Badge, Button } from "@fettlr/design-system";
-import { RiFileTextLine, RiFileZipLine, RiFolderOpenLine } from "@remixicon/react";
+import { RiArrowGoBackLine, RiEyeOffLine, RiFileTextLine, RiFileZipLine, RiFolderOpenLine } from "@remixicon/react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -11,6 +11,7 @@ import { DetailHeader, DetailRow, UsageRow, codeChip, formatTimestamp } from "..
 import {
   CLAUDE_SKILLS_SETTINGS_URL,
   accountBehindFor,
+  accountSkippedFor,
   describeAccountBehind,
   packageForUpload,
 } from "./accountSkills";
@@ -23,8 +24,10 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
   const busy = useFettlr((state) => state.busy);
   const [packaging, setPackaging] = useState(false);
   const behind = useFettlr((state) => accountBehindFor(state.snapshot, skill.id));
+  const skipped = useFettlr((state) => accountSkippedFor(state.snapshot, skill.id));
+  const newer = behind ?? skipped;
   const localPath = useFettlr((state) =>
-    behind ? state.snapshot?.skills.find((candidate) => candidate.id === behind.localId)?.path : undefined,
+    newer ? state.snapshot?.skills.find((candidate) => candidate.id === newer.localId)?.path : undefined,
   );
   const updatedAt = skill.provenance.kind === "account" ? skill.provenance.updatedAt : null;
 
@@ -62,13 +65,17 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
         <DetailRow label={t("skills.detail.updateStatus")}>
           {behind ? (
             <StaleBadge>{describeAccountBehind(behind, t)}</StaleBadge>
+          ) : skipped ? (
+            <Badge tone="neutral" variant="soft">
+              {t("skills.account.behindSkipped")}
+            </Badge>
           ) : (
             <Badge tone="neutral" variant="soft">
               {t("skills.account.noNewerCopy")}
             </Badge>
           )}
         </DetailRow>
-        {behind ? (
+        {newer ? (
           <DetailRow label={t("skills.detail.newerLocalCopy")}>
             <div className="flex items-center justify-between gap-3">
               {localPath ? <code className={codeChip}>{localPath}</code> : <span />}
@@ -76,7 +83,7 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
                 type="button"
                 variant="secondary"
                 size="sm"
-                onClick={() => navigateToItem("skills", itemKey("skill", behind.localId))}
+                onClick={() => navigateToItem("skills", itemKey("skill", newer.localId))}
               >
                 {t("skills.detail.showLocalCopy")}
               </Button>
@@ -88,7 +95,7 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
         </DetailRow>
       </dl>
 
-      {behind ? <p className="text-sm text-text-muted">{t("skills.account.packageHint")}</p> : null}
+      {newer ? <p className="text-sm text-text-muted">{t("skills.account.packageHint")}</p> : null}
 
       <div className="mt-auto grid grid-cols-2 gap-2">
         <Button
@@ -110,11 +117,33 @@ export function AccountSkillDetail({ skill }: { skill: UiSkill }) {
         {behind ? (
           <Button
             type="button"
+            variant="secondary"
+            disabled={busy || packaging}
+            onClick={() => void dispatch(commands.skipAccountSkill(behind.accountId))}
+          >
+            <RiEyeOffLine className="size-4" aria-hidden="true" />
+            {t("skills.account.skip")}
+          </Button>
+        ) : null}
+        {skipped ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy || packaging}
+            onClick={() => void dispatch(commands.unskipAccountSkill(skipped.accountId))}
+          >
+            <RiArrowGoBackLine className="size-4" aria-hidden="true" />
+            {t("skills.account.undoSkip")}
+          </Button>
+        ) : null}
+        {newer ? (
+          <Button
+            type="button"
             disabled={busy || packaging}
             onClick={async () => {
               setPackaging(true);
               try {
-                await packageForUpload(dispatch, behind.localId);
+                await packageForUpload(dispatch, newer.localId);
               } finally {
                 setPackaging(false);
               }

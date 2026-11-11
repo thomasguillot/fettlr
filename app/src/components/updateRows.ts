@@ -6,6 +6,8 @@ export type UpdateRow = {
   detail: string;
   action: ((id: string) => void) | null;
   actionKey: string;
+  secondaryAction?: (id: string) => void;
+  secondaryActionKey?: string;
   inUpdateAll: boolean;
 };
 

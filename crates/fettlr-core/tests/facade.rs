@@ -121,6 +121,14 @@ impl ScriptedCliRunner {
             .push(prefix.iter().map(|arg| arg.to_string()).collect());
     }
 
+    fn clear_failures(&self) {
+        self.state
+            .lock()
+            .expect("lock poisoned")
+            .fail_prefixes
+            .clear();
+    }
+
     fn fail_with_binary_not_found_when_args_start_with(&self, prefix: &[&str]) {
         self.state
             .lock()
@@ -325,6 +333,320 @@ mod refresh {
                 local_version: Some("4.7.1".into()),
             }]
         );
+    }
+
+    const ACCOUNT_ID: &str = "account:impeccable";
+
+    fn skips_file(tree: &TempTree) -> PathBuf {
+        tree.paths.support_dir.join("account-skill-skips.json")
+    }
+
+    fn edit_local_copy(tree: &TempTree, markdown: &str) {
+        let path = tree
+            .plugin_skills_dir("impeccable")
+            .join("impeccable")
+            .join("SKILL.md");
+        tree.write(markdown, &path);
+    }
+
+    #[test]
+    fn skipping_an_account_skill_hides_its_row_and_lists_it_as_skipped() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+
+        let skipped = fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        assert!(skipped.account_skills_behind.is_empty());
+        assert_eq!(skipped.account_skills_skipped.len(), 1);
+        assert_eq!(skipped.account_skills_skipped[0].account_id, ACCOUNT_ID);
+        assert!(skips_file(&tree).exists());
+        let again = fettlr.refresh().expect("refresh");
+        assert!(again.account_skills_behind.is_empty());
+        assert_eq!(again.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn a_skip_survives_a_version_only_change_to_the_local_copy() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        edit_local_copy(
+            &tree,
+            "---\nname: impeccable\ndescription: d\nversion: 4.7.2\n---\n\nnew body\n",
+        );
+        let again = fettlr.refresh().expect("refresh");
+
+        assert!(again.account_skills_behind.is_empty());
+        assert_eq!(again.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn changing_the_local_copy_brings_the_row_back_and_clears_the_skip() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        edit_local_copy(
+            &tree,
+            "---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nnewer body\n",
+        );
+        let again = fettlr.refresh().expect("refresh");
+
+        assert_eq!(again.account_skills_behind.len(), 1);
+        assert!(again.account_skills_skipped.is_empty());
+        let stored = std::fs::read_to_string(skips_file(&tree)).expect("read");
+        assert!(!stored.contains(ACCOUNT_ID));
+    }
+
+    #[test]
+    fn the_account_copy_catching_up_clears_the_skip() {
+        let tree = TempTree::new();
+        let (account, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        tree.write(
+            "---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nnew body\n",
+            &account.join("SKILL.md"),
+        );
+        let caught_up = fettlr.refresh().expect("refresh");
+
+        assert!(caught_up.account_skills_behind.is_empty());
+        assert!(caught_up.account_skills_skipped.is_empty());
+        let stored = std::fs::read_to_string(skips_file(&tree)).expect("read");
+        assert!(!stored.contains(ACCOUNT_ID));
+    }
+
+    #[test]
+    fn unskipping_restores_the_row() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        let restored = fettlr.unskip_account_skill(ACCOUNT_ID).expect("unskip");
+
+        assert_eq!(restored.account_skills_behind.len(), 1);
+        assert!(restored.account_skills_skipped.is_empty());
+    }
+
+    #[test]
+    fn skipping_a_skill_that_is_not_behind_is_refused() {
+        let tree = TempTree::new();
+        let runner = Arc::new(ScriptedCliRunner::new());
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+
+        assert!(matches!(
+            fettlr.skip_account_skill(ACCOUNT_ID),
+            Err(CoreError::AccountSkillNotBehind { .. })
+        ));
+    }
+
+    #[test]
+    fn a_corrupt_skip_store_is_treated_as_empty() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        tree.write("not json", &skips_file(&tree));
+
+        let snapshot = fettlr.refresh().expect("refresh");
+
+        assert_eq!(snapshot.account_skills_behind.len(), 1);
+        assert!(snapshot.account_skills_skipped.is_empty());
+    }
+
+    #[test]
+    fn a_missing_skip_store_is_treated_as_empty() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+
+        let snapshot = fettlr.refresh().expect("refresh");
+
+        assert_eq!(snapshot.account_skills_behind.len(), 1);
+        assert!(!skips_file(&tree).exists());
+    }
+
+    #[test]
+    fn a_failed_plugin_list_keeps_the_skip() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner.clone(), &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        runner.fail_when_args_start_with(&["plugin", "list"]);
+        let failed = fettlr.refresh().expect("refresh");
+        assert!(failed.account_skills_behind.is_empty());
+        assert!(failed.account_skills_skipped.is_empty());
+
+        runner.clear_failures();
+        let recovered = fettlr.refresh().expect("refresh");
+
+        assert!(recovered.account_skills_behind.is_empty());
+        assert_eq!(recovered.account_skills_skipped.len(), 1);
+        let stored = std::fs::read_to_string(skips_file(&tree)).expect("read");
+        assert!(stored.contains(ACCOUNT_ID));
+    }
+
+    #[test]
+    fn an_unreadable_local_copy_keeps_the_skip() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+        let markdown = tree
+            .plugin_skills_dir("impeccable")
+            .join("impeccable")
+            .join("SKILL.md");
+        let content = std::fs::read_to_string(&markdown).expect("read");
+        std::fs::remove_file(&markdown).expect("remove");
+
+        let during = fettlr.refresh().expect("refresh");
+        assert!(during.account_skills_behind.is_empty());
+        std::fs::write(&markdown, content).expect("restore");
+        let after = fettlr.refresh().expect("refresh");
+
+        assert_eq!(after.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn a_skip_survives_check_updates() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        let checked = fettlr.check_updates().expect("check_updates");
+
+        assert!(checked.account_skills_behind.is_empty());
+        assert_eq!(checked.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn a_row_check_updates_withdraws_as_stale_keeps_the_skip() {
+        let tree = TempTree::new();
+        let runner = account_and_unversioned_plugin_copy(&tree);
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        fettlr.check_updates().expect("check_updates");
+
+        let stored = std::fs::read_to_string(skips_file(&tree)).expect("read");
+        assert!(stored.contains(ACCOUNT_ID));
+    }
+
+    #[test]
+    fn a_second_same_name_copy_winning_does_not_drop_the_skip() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        let user_markdown =
+            "---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nuser body\n";
+        tree.make_skill(
+            "impeccable",
+            &tree.user_skills_dir(),
+            Some(user_markdown),
+            false,
+        );
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        std::thread::sleep(Duration::from_millis(1100));
+        tree.write(
+            user_markdown,
+            &tree.user_skills_dir().join("impeccable").join("SKILL.md"),
+        );
+        let again = fettlr.refresh().expect("refresh");
+
+        assert!(again.account_skills_behind.is_empty());
+        assert_eq!(again.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn an_older_copy_that_appears_after_the_skip_keeps_it() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        tree.make_skill(
+            "impeccable",
+            &tree.user_skills_dir(),
+            Some("---\nname: impeccable\ndescription: d\nversion: 4.8.0\n---\n\nuser body\n"),
+            false,
+        );
+        let fettlr = fettlr_with(runner.clone(), &tree);
+        runner.fail_when_args_start_with(&["plugin", "list"]);
+        let degraded = fettlr.refresh().expect("refresh");
+        assert_eq!(degraded.account_skills_behind.len(), 1);
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        runner.clear_failures();
+        let recovered = fettlr.refresh().expect("refresh");
+
+        assert!(recovered.account_skills_behind.is_empty());
+        assert_eq!(recovered.account_skills_skipped.len(), 1);
+    }
+
+    #[test]
+    fn a_new_copy_that_becomes_the_newer_one_drops_the_skip() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        tree.make_skill(
+            "impeccable",
+            &tree.user_skills_dir(),
+            Some("---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nuser body\n"),
+            false,
+        );
+        let fettlr = fettlr_with(runner.clone(), &tree);
+        runner.fail_when_args_start_with(&["plugin", "list"]);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        edit_local_copy(
+            &tree,
+            "---\nname: impeccable\ndescription: d\nversion: 4.9.0\n---\n\nnew body\n",
+        );
+        runner.clear_failures();
+        let recovered = fettlr.refresh().expect("refresh");
+
+        assert_eq!(recovered.account_skills_behind.len(), 1);
+        assert!(recovered.account_skills_skipped.is_empty());
+    }
+
+    #[test]
+    fn editing_a_second_same_name_copy_brings_the_row_back() {
+        let tree = TempTree::new();
+        let (_, runner) = account_and_plugin_copy(&tree);
+        tree.make_skill(
+            "impeccable",
+            &tree.user_skills_dir(),
+            Some("---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nuser body\n"),
+            false,
+        );
+        let fettlr = fettlr_with(runner, &tree);
+        fettlr.refresh().expect("refresh");
+        fettlr.skip_account_skill(ACCOUNT_ID).expect("skip");
+
+        tree.write(
+            "---\nname: impeccable\ndescription: d\nversion: 4.7.1\n---\n\nedited\n",
+            &tree.user_skills_dir().join("impeccable").join("SKILL.md"),
+        );
+        let again = fettlr.refresh().expect("refresh");
+
+        assert_eq!(again.account_skills_behind.len(), 1);
+        assert!(again.account_skills_skipped.is_empty());
     }
 
     #[test]

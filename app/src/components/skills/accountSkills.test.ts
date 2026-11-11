@@ -4,6 +4,7 @@ import type { UiSkill, UiSnapshot } from "../../bindings";
 import {
   CLAUDE_SKILLS_SETTINGS_URL,
   accountBehindFor,
+  accountSkippedFor,
   describeAccountBehind,
   isAccountSkill,
   packageForUpload,
@@ -41,6 +42,21 @@ describe("accountBehindFor", () => {
   it("returns undefined for an unknown id or a missing snapshot", () => {
     expect(accountBehindFor(snapshot, "other")).toBeUndefined();
     expect(accountBehindFor(null, "account:one")).toBeUndefined();
+  });
+});
+
+describe("accountSkippedFor", () => {
+  const entry = { accountId: "account:one", localId: "local:one", localVersion: null };
+  const snapshot = { accountSkillsBehind: [], accountSkillsSkipped: [entry] } as unknown as UiSnapshot;
+
+  it("finds a skipped entry and keeps it out of the behind lookup", () => {
+    expect(accountSkippedFor(snapshot, "account:one")).toEqual(entry);
+    expect(accountBehindFor(snapshot, "account:one")).toBeUndefined();
+  });
+
+  it("returns undefined for an unknown id or a missing snapshot", () => {
+    expect(accountSkippedFor(snapshot, "other")).toBeUndefined();
+    expect(accountSkippedFor(null, "account:one")).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use fettlr_core::{CoreError, GitProbe, GitProbing};
+use fettlr_core::{BehindCount, CoreError, GitProbe, GitProbing};
 
 const GIT_BINARY: &str = "/usr/bin/git";
 
@@ -88,18 +88,64 @@ fn run(args: &[&str], cwd: &Path) {
 }
 
 #[test]
-fn behind_count_reports_zero_then_one_after_a_new_origin_commit() {
+fn behind_count_is_zero_when_the_remote_head_is_the_local_head() {
     if !git_installed() {
         return;
     }
     let fixture = GitFixture::new();
-    let probe = GitProbe;
 
-    assert_eq!(probe.behind_count(&fixture.clone).expect("behind count"), 0);
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Commits(0)
+    );
+}
 
+#[test]
+fn behind_count_is_exact_when_the_remote_commit_is_already_held_locally() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
     fixture.commit_to_origin("two.txt");
+    fixture.commit_to_origin("three.txt");
+    run(&["fetch", "--quiet"], &fixture.clone);
 
-    assert_eq!(probe.behind_count(&fixture.clone).expect("behind count"), 1);
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Commits(2)
+    );
+}
+
+#[test]
+fn behind_count_is_zero_when_the_clone_is_ahead_of_the_remote() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
+    fixture.commit_to_clone("local.txt");
+
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Commits(0)
+    );
+}
+
+#[test]
+fn behind_count_is_unknown_and_writes_nothing_when_the_remote_commit_is_not_held() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
+    fixture.commit_to_origin("two.txt");
+    let tracking = fixture.clone.join(".git/refs/remotes/origin/main");
+    let before = std::fs::read_to_string(&tracking).ok();
+
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Unknown
+    );
+    assert!(!fixture.clone.join(".git/FETCH_HEAD").exists());
+    assert_eq!(std::fs::read_to_string(&tracking).ok(), before);
 }
 
 #[test]
@@ -130,8 +176,130 @@ fn a_repository_without_an_upstream_reports_no_upstream() {
     assert!(matches!(error, CoreError::NoUpstream { .. }));
 }
 
+fn git_at_least_2_44() -> bool {
+    let Ok(output) = Command::new(GIT_BINARY).arg("--version").output() else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let version = text
+        .split_whitespace()
+        .find(|word| word.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or("0");
+    let mut fields = version.split('.').map(|f| f.parse::<u32>().unwrap_or(0));
+    let (major, minor) = (fields.next().unwrap_or(0), fields.next().unwrap_or(0));
+    (major, minor) >= (2, 44)
+}
+
+fn pack_listing(clone: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(clone.join(".git/objects/pack"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
 #[test]
-fn a_fetch_that_cannot_reach_its_origin_reports_what_git_said() {
+fn a_partial_clone_never_lazily_fetches_a_missing_remote_commit() {
+    if !git_installed() {
+        return;
+    }
+    if !git_at_least_2_44() {
+        eprintln!("skipped: --no-lazy-fetch needs git 2.44 or newer");
+        return;
+    }
+    let fixture = GitFixture::new();
+    run(
+        &["config", "uploadpack.allowfilter", "true"],
+        &fixture.origin,
+    );
+    run(
+        &["config", "uploadpack.allowanysha1inwant", "true"],
+        &fixture.origin,
+    );
+    let partial = fixture._root.path().join("partial");
+    run(
+        &[
+            "clone",
+            "--quiet",
+            "--no-local",
+            "--filter=blob:none",
+            &format!("file://{}", fixture.origin.display()),
+            partial.to_str().expect("utf8 path"),
+        ],
+        fixture._root.path(),
+    );
+    fixture.commit_to_origin("two.txt");
+    let before = pack_listing(&partial);
+
+    assert_eq!(
+        GitProbe.behind_count(&partial).expect("behind count"),
+        BehindCount::Unknown
+    );
+    assert_eq!(pack_listing(&partial), before);
+}
+
+#[test]
+fn a_branch_tracking_a_differently_named_branch_on_another_remote_is_counted() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
+    run(&["branch", "release"], &fixture.origin);
+    run(
+        &[
+            "remote",
+            "add",
+            "upstream",
+            fixture.origin.to_str().expect("utf8 path"),
+        ],
+        &fixture.clone,
+    );
+    run(&["fetch", "--quiet", "upstream"], &fixture.clone);
+    run(
+        &["branch", "--set-upstream-to=upstream/release", "main"],
+        &fixture.clone,
+    );
+    run(&["checkout", "--quiet", "release"], &fixture.origin);
+    fixture.commit_to_origin("two.txt");
+    run(&["checkout", "--quiet", "main"], &fixture.origin);
+
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Unknown
+    );
+    run(&["fetch", "--quiet", "upstream"], &fixture.clone);
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Commits(1)
+    );
+}
+
+#[test]
+fn only_the_exact_upstream_ref_is_compared() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
+    run(
+        &["checkout", "--quiet", "-b", "x/refs/heads/main"],
+        &fixture.origin,
+    );
+    fixture.commit_to_origin("decoy.txt");
+    run(&["checkout", "--quiet", "main"], &fixture.origin);
+
+    assert_eq!(
+        GitProbe.behind_count(&fixture.clone).expect("behind count"),
+        BehindCount::Commits(0)
+    );
+}
+
+#[test]
+fn a_listing_that_cannot_reach_its_origin_reports_what_git_said() {
     if !git_installed() {
         return;
     }
@@ -144,11 +312,28 @@ fn a_fetch_that_cannot_reach_its_origin_reports_what_git_said() {
 
     match error {
         CoreError::Cli { command, stderr } => {
-            assert_eq!(command, "git fetch --quiet");
+            assert_eq!(
+                command,
+                "git ls-remote --end-of-options origin refs/heads/main"
+            );
             assert!(!stderr.is_empty());
         }
-        other => panic!("expected a failed fetch, got {other:?}"),
+        other => panic!("expected a failed listing, got {other:?}"),
     }
+}
+
+#[test]
+fn a_detached_head_reports_no_upstream() {
+    if !git_installed() {
+        return;
+    }
+    let fixture = GitFixture::new();
+    run(&["checkout", "--quiet", "--detach"], &fixture.clone);
+
+    let error = GitProbe
+        .behind_count(&fixture.clone)
+        .expect_err("no branch to track");
+    assert!(matches!(error, CoreError::NoUpstream { .. }));
 }
 
 #[test]

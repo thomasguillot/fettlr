@@ -4,8 +4,21 @@ use std::time::Duration;
 use crate::cli::{CliOutput, CliRunner, ProcessCliRunner};
 use crate::cli_records::CoreError;
 
+/// How far a clone trails its upstream, as learned without downloading anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BehindCount {
+    /// The exact number of upstream commits the clone lacks; zero when it is current or ahead.
+    Commits(u32),
+    /// The upstream moved to a commit the clone does not hold, so the distance is not known.
+    Unknown,
+}
+
 pub trait GitProbing: Send + Sync {
-    fn behind_count(&self, repo: &Path) -> Result<u32, CoreError>;
+    /// Compares the clone's `HEAD` with its upstream branch through `git ls-remote`. Nothing is
+    /// fetched, not even lazily into a partial clone, and nothing is written into the clone.
+    /// A partial clone is checked with `--no-lazy-fetch` (git 2.44 or newer) and reads `Unknown`
+    /// when git refuses. A clone with no upstream is `CoreError::NoUpstream`.
+    fn behind_count(&self, repo: &Path) -> Result<BehindCount, CoreError>;
     fn pull_ff_only(&self, repo: &Path) -> Result<(), CoreError>;
 
     /// The 40-hex commit the remote's `reference` (or `HEAD`) points at, from `git ls-remote`
@@ -139,27 +152,93 @@ fn checked_remote(url: &str, reference: Option<&str>) -> Result<(), CoreError> {
     Ok(())
 }
 
-const BEHIND_COUNT: &[&str] = &["rev-list", "--count", "HEAD..@{upstream}"];
-
-impl GitProbing for GitProbe {
-    fn behind_count(&self, repo: &Path) -> Result<u32, CoreError> {
-        self.run_ok(&["fetch", "--quiet"], repo)?;
-
-        let counted = self.run(BEHIND_COUNT, repo)?;
-        if counted.exit_code != 0 {
-            if counted.stderr.contains("no upstream configured") {
-                return Err(CoreError::NoUpstream {
-                    repo: repo.display().to_string(),
-                });
-            }
-            return Err(failed(BEHIND_COUNT, counted.stderr));
+impl GitProbe {
+    fn upstream(&self, repo: &Path) -> Result<(String, String), CoreError> {
+        let no_upstream = || CoreError::NoUpstream {
+            repo: repo.display().to_string(),
+        };
+        let head = self.run(&["symbolic-ref", "--quiet", "HEAD"], repo)?;
+        let branch = head.stdout.trim();
+        if head.exit_code != 0 || branch.is_empty() {
+            return Err(no_upstream());
         }
+        let format = "--format=%(upstream:remotename)%09%(upstream:remoteref)";
+        let listed = self.run_ok(&["for-each-ref", format, branch], repo)?;
+        match listed.stdout.trim_end().split_once('\t') {
+            Some((remote, reference)) if !remote.is_empty() && !reference.is_empty() => {
+                Ok((remote.to_string(), reference.to_string()))
+            }
+            _ => Err(no_upstream()),
+        }
+    }
 
+    fn is_partial_clone(&self, repo: &Path) -> Result<bool, CoreError> {
+        let found = self.run(
+            &[
+                "config",
+                "--get-regexp",
+                r"^(extensions\.partialclone|remote\..*\.promisor)$",
+            ],
+            repo,
+        )?;
+        Ok(found.exit_code == 0 && !found.stdout.trim().is_empty())
+    }
+
+    fn count_commits(&self, remote_sha: &str, repo: &Path) -> Result<BehindCount, CoreError> {
+        let head = self.run_ok(&["rev-parse", "--verify", "HEAD"], repo)?;
+        if head.stdout.trim().eq_ignore_ascii_case(remote_sha) {
+            return Ok(BehindCount::Commits(0));
+        }
+        let partial = self.is_partial_clone(repo)?;
+        let guard: &[&str] = if partial { &["--no-lazy-fetch"] } else { &[] };
+        let with_guard = |rest: &[&str]| -> Vec<String> {
+            guard
+                .iter()
+                .chain(rest)
+                .map(|arg| (*arg).to_string())
+                .collect()
+        };
+        let present = format!("{remote_sha}^{{commit}}");
+        let held = self.run_strs(&with_guard(&["cat-file", "-e", &present]), repo)?;
+        if held.exit_code != 0 {
+            return Ok(BehindCount::Unknown);
+        }
+        let range = format!("HEAD..{remote_sha}");
+        let counted = self.run_strs(&with_guard(&["rev-list", "--count", &range]), repo)?;
+        if counted.exit_code != 0 {
+            return if partial {
+                Ok(BehindCount::Unknown)
+            } else {
+                Err(failed(&["rev-list", "--count", &range], counted.stderr))
+            };
+        }
         counted
             .stdout
             .trim()
             .parse::<u32>()
-            .map_err(|_| failed(BEHIND_COUNT, counted.stdout))
+            .map(BehindCount::Commits)
+            .map_err(|_| failed(&["rev-list", "--count", &range], counted.stdout))
+    }
+
+    fn run_strs(&self, args: &[String], repo: &Path) -> Result<CliOutput, CoreError> {
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run(&borrowed, repo)
+    }
+}
+
+impl GitProbing for GitProbe {
+    fn behind_count(&self, repo: &Path) -> Result<BehindCount, CoreError> {
+        let (remote, reference) = self.upstream(repo)?;
+        let args = ["ls-remote", "--end-of-options", &remote, &reference];
+        let listing = self.run_ok(&args, repo)?;
+        let remote_sha = listing
+            .stdout
+            .lines()
+            .filter_map(|line| line.split_once(char::is_whitespace))
+            .find(|(_, name)| name.trim() == reference)
+            .and_then(|(sha, _)| first_commit(sha))
+            .ok_or_else(|| failed(&args, listing.stdout.clone()))?;
+        self.count_commits(&remote_sha, repo)
     }
 
     fn pull_ff_only(&self, repo: &Path) -> Result<(), CoreError> {

@@ -13,10 +13,11 @@ use crate::mcp::McpServer;
 use crate::models::{UNKNOWN_VERSION, UpdateState};
 use crate::skills::{Provenance, Skill, SkillsCliOrigin};
 
-use super::git::GitProbing;
+use super::git::{BehindCount, GitProbing};
 use super::package_spec::PackageSpec;
 use super::plugin_catalogue::{CatalogueVersion, PluginCatalogue};
 use super::registry::{PackageRegistry, RegistryClient};
+use super::sweep::{sweep_clone, sweep_source_cache};
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct UpdateReport {
@@ -94,6 +95,26 @@ impl UpdateChecker {
         self
     }
 
+    fn sweep_leftover_packs(&self, marketplaces: &[MarketplaceRecord], skills: &[Skill]) {
+        for record in marketplaces {
+            let dir = Path::new(&record.install_location);
+            if matches!(record.source.as_str(), "github" | "git")
+                && sweepable_root(dir)
+                && std::fs::symlink_metadata(dir.join(GCS_SHA_FILE)).is_err()
+            {
+                sweep_clone(dir);
+            }
+        }
+        for skill in skills {
+            if matches!(skill.provenance, Provenance::GitClone) && sweepable_root(&skill.path) {
+                sweep_clone(&skill.path);
+            }
+        }
+        if let Some(cache) = &self.source_cache {
+            sweep_source_cache(cache);
+        }
+    }
+
     /// Checks every item the app can badge, in one pass. Never fails as a whole: a failure on one
     /// item leaves that item `Unknown` and the rest checked.
     ///
@@ -107,6 +128,8 @@ impl UpdateChecker {
         skills: &[Skill],
         mcp: &[McpServer],
     ) -> UpdateReport {
+        self.sweep_leftover_packs(marketplaces, skills);
+
         let heads: SourceHeads = Mutex::new(BTreeMap::new());
         let heads = &heads;
         let mut jobs: Vec<Job<'_>> = Vec::new();
@@ -162,6 +185,12 @@ impl UpdateChecker {
         report.checked_at = civil_time::format_rfc3339(civil_time::now_unix_seconds());
         report
     }
+}
+
+fn sweepable_root(dir: &Path) -> bool {
+    dir.is_absolute()
+        && !dir.components().any(|part| part == Component::ParentDir)
+        && std::fs::symlink_metadata(dir).is_ok_and(|metadata| metadata.is_dir())
 }
 
 enum Target {
@@ -410,10 +439,11 @@ fn fnv1a(bytes: &[u8]) -> u32 {
     })
 }
 
-fn behind_state(result: Result<u32, CoreError>) -> UpdateState {
+fn behind_state(result: Result<BehindCount, CoreError>) -> UpdateState {
     match result {
-        Ok(0) => UpdateState::UpToDate,
-        Ok(commits) => UpdateState::Behind { commits },
+        Ok(BehindCount::Commits(0)) => UpdateState::UpToDate,
+        Ok(BehindCount::Commits(commits)) => UpdateState::Behind { commits },
+        Ok(BehindCount::Unknown) => UpdateState::SourceChanged,
         Err(_) => UpdateState::Unknown,
     }
 }

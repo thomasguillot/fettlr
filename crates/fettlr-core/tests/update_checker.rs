@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use fettlr_core::testing::{FakeGitProbe, FakeRegistryClient, TempTree};
 use fettlr_core::{
-    CatalogueVersion, CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer,
+    BehindCount, CatalogueVersion, CoreError, GitProbing, MarketplaceRecord, McpOrigin, McpServer,
     McpServerConfig, PluginCatalogue, PluginRecord, Provenance, Scope, Skill, SkillsCliOrigin,
     UpdateChecker, UpdateState,
 };
@@ -108,7 +108,7 @@ impl CountingGitProbe {
 }
 
 impl GitProbing for CountingGitProbe {
-    fn behind_count(&self, _repo: &Path) -> Result<u32, CoreError> {
+    fn behind_count(&self, _repo: &Path) -> Result<BehindCount, CoreError> {
         {
             let mut active = self.active.lock().expect("lock poisoned");
             *active += 1;
@@ -117,7 +117,7 @@ impl GitProbing for CountingGitProbe {
         }
         std::thread::sleep(Duration::from_millis(20));
         *self.active.lock().expect("lock poisoned") -= 1;
-        Ok(0)
+        Ok(BehindCount::Commits(0))
     }
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
@@ -1011,8 +1011,8 @@ fn a_sha_file_wins_over_a_planted_repository_and_git_is_never_run_there() {
 struct WorkdirRecorder(Mutex<Vec<PathBuf>>);
 
 impl GitProbing for WorkdirRecorder {
-    fn behind_count(&self, _repo: &Path) -> Result<u32, CoreError> {
-        Ok(0)
+    fn behind_count(&self, _repo: &Path) -> Result<BehindCount, CoreError> {
+        Ok(BehindCount::Commits(0))
     }
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {
         Ok(())
@@ -1346,5 +1346,261 @@ fn only_an_owner_and_name_repo_is_turned_into_a_url() {
             UpdateState::Unknown
         };
         assert_eq!(state_of(&checker, record), expected, "{repo:?}");
+    }
+}
+
+#[test]
+fn a_clone_whose_upstream_moved_past_what_it_holds_is_source_changed() {
+    let git = FakeGitProbe::new().with_unknown_count_for("/skills/moved");
+    let checker = UpdateChecker::new(Arc::new(git), Arc::new(FakeRegistryClient::new()));
+    let skills = vec![skill("moved", Provenance::GitClone, "/skills/moved")];
+    let marketplaces = vec![marketplace("moved", "/skills/moved")];
+
+    let report = checker.check(
+        &marketplaces,
+        &[],
+        &PluginCatalogue::default(),
+        &skills,
+        &[],
+    );
+
+    assert_eq!(report.skills["user/moved"], UpdateState::SourceChanged);
+    assert_eq!(report.marketplaces["moved"], UpdateState::SourceChanged);
+}
+
+mod leftover_packs {
+    use super::*;
+    use std::fs::File;
+    use std::time::SystemTime;
+
+    fn aged(path: &Path, age: Duration) {
+        let file = File::options().write(true).open(path).expect("open");
+        file.set_modified(SystemTime::now() - age).expect("mtime");
+    }
+
+    fn write(path: &Path, age: Duration) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x").unwrap();
+        aged(path, age);
+    }
+
+    const OLD: Duration = Duration::from_secs(2 * 60 * 60);
+    const YOUNG: Duration = Duration::from_secs(60);
+
+    fn run_check(tree: &TempTree, marketplace_dir: &Path, skill_dir: &Path) {
+        let checker = UpdateChecker::new(
+            Arc::new(FakeGitProbe::new()),
+            Arc::new(FakeRegistryClient::new()),
+        )
+        .with_source_cache(tree.root().join("cache"));
+        let marketplaces = vec![marketplace("official", marketplace_dir.to_str().unwrap())];
+        let skills = vec![skill(
+            "cloned",
+            Provenance::GitClone,
+            skill_dir.to_str().unwrap(),
+        )];
+        checker.check(
+            &marketplaces,
+            &[],
+            &PluginCatalogue::default(),
+            &skills,
+            &[],
+        );
+    }
+
+    #[test]
+    fn old_temporary_packs_go_from_marketplaces_skills_and_the_source_cache() {
+        let tree = TempTree::new();
+        let market = tree.root().join("market");
+        let cloned = tree.root().join("cloned");
+        let bare = tree.root().join("cache/some-source-1234");
+        let targets = [
+            market.join(".git/objects/pack/tmp_pack_abc"),
+            market.join(".git/objects/pack/tmp_idx_abc"),
+            market.join(".git/objects/pack/tmp_rev_abc"),
+            cloned.join(".git/objects/pack/tmp_pack_def"),
+            bare.join("objects/pack/tmp_pack_ghi"),
+        ];
+        for target in &targets {
+            write(target, OLD);
+        }
+
+        run_check(&tree, &market, &cloned);
+
+        for target in &targets {
+            assert!(!target.exists(), "{} should be gone", target.display());
+        }
+    }
+
+    #[test]
+    fn young_temporary_packs_and_real_packs_stay() {
+        let tree = TempTree::new();
+        let market = tree.root().join("market");
+        let cloned = tree.root().join("cloned");
+        let pack = market.join(".git/objects/pack");
+        let young = pack.join("tmp_pack_young");
+        let real_pack = pack.join("pack-1234.pack");
+        let real_idx = pack.join("pack-1234.idx");
+        write(&young, YOUNG);
+        write(&real_pack, OLD);
+        write(&real_idx, OLD);
+
+        run_check(&tree, &market, &cloned);
+
+        assert!(young.exists());
+        assert!(real_pack.exists());
+        assert!(real_idx.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_git_dir_or_pack_dir_is_never_followed() {
+        use std::os::unix::fs::symlink;
+
+        let tree = TempTree::new();
+        let outside = tree.root().join("outside");
+        let outside_pack = outside.join("objects/pack");
+        let victim = outside_pack.join("tmp_pack_victim");
+        write(&victim, OLD);
+
+        let market = tree.root().join("market");
+        std::fs::create_dir_all(&market).unwrap();
+        symlink(&outside, market.join(".git")).unwrap();
+
+        let cloned = tree.root().join("cloned");
+        std::fs::create_dir_all(cloned.join(".git/objects")).unwrap();
+        symlink(&outside_pack, cloned.join(".git/objects/pack")).unwrap();
+
+        let cached = tree.root().join("cache");
+        std::fs::create_dir_all(&cached).unwrap();
+        symlink(&outside, cached.join("linked-repo")).unwrap();
+
+        run_check(&tree, &market, &cloned);
+
+        assert!(victim.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_file_is_skipped_and_a_symlinked_temporary_pack_is_not_removed() {
+        use std::os::unix::fs::symlink;
+        use std::process::Command;
+
+        let tree = TempTree::new();
+        let elsewhere = tree.root().join("elsewhere");
+        let hidden = elsewhere.join("objects/pack/tmp_pack_x");
+        write(&hidden, OLD);
+        let market = tree.root().join("market");
+        std::fs::create_dir_all(&market).unwrap();
+        std::fs::write(
+            market.join(".git"),
+            format!("gitdir: {}", elsewhere.display()),
+        )
+        .unwrap();
+
+        let cloned = tree.root().join("cloned");
+        let pack = cloned.join(".git/objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        let target = tree.root().join("target.txt");
+        std::fs::write(&target, "keep").unwrap();
+        let link = pack.join("tmp_pack_link");
+        symlink(&target, &link).unwrap();
+        let aged_link = Command::new("touch")
+            .args(["-h", "-t", "202001010000"])
+            .arg(&link)
+            .status()
+            .unwrap();
+        assert!(aged_link.success());
+
+        run_check(&tree, &market, &cloned);
+
+        assert!(hidden.exists());
+        assert!(link.symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn only_git_and_github_marketplaces_are_swept() {
+        let tree = TempTree::new();
+        let own_repo = tree.root().join("own-repo");
+        let leftover = own_repo.join(".git/objects/pack/tmp_pack_old");
+        write(&leftover, OLD);
+        let mut record = marketplace("official", own_repo.to_str().unwrap());
+        record.source = "directory".to_string();
+        let checker = UpdateChecker::new(
+            Arc::new(FakeGitProbe::new()),
+            Arc::new(FakeRegistryClient::new()),
+        );
+
+        checker.check(&[record], &[], &PluginCatalogue::default(), &[], &[]);
+
+        assert!(leftover.exists());
+    }
+
+    fn sweep_leaves_alone(tree: &TempTree, location: &str, leftover: &Path) {
+        let checker = UpdateChecker::new(
+            Arc::new(FakeGitProbe::new()),
+            Arc::new(FakeRegistryClient::new()),
+        );
+        let _ = tree;
+        checker.check(
+            &[marketplace("official", location)],
+            &[],
+            &PluginCatalogue::default(),
+            &[],
+            &[],
+        );
+        assert!(leftover.exists());
+    }
+
+    #[test]
+    fn a_parent_relative_location_is_not_swept() {
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.root().join("other")).unwrap();
+        let leftover = tree.root().join("clone/.git/objects/pack/tmp_pack_old");
+        write(&leftover, OLD);
+        let sneaky = format!("{}/other/../clone", tree.root().display());
+
+        sweep_leaves_alone(&tree, &sneaky, &leftover);
+    }
+
+    #[test]
+    fn a_relative_location_is_not_swept() {
+        let tree = TempTree::new();
+        let leftover = tree.root().join("clone/.git/objects/pack/tmp_pack_old");
+        write(&leftover, OLD);
+        let cwd = std::env::current_dir().unwrap();
+        let up = "../".repeat(cwd.components().count() - 1);
+        let relative = format!(
+            "{up}{}/clone",
+            tree.root().display().to_string().trim_start_matches('/')
+        );
+        assert!(Path::new(&relative).join(".git").exists());
+
+        sweep_leaves_alone(&tree, &relative, &leftover);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_clone_root_is_not_swept() {
+        let tree = TempTree::new();
+        let real = tree.root().join("real");
+        let leftover = real.join(".git/objects/pack/tmp_pack_old");
+        write(&leftover, OLD);
+        let link = tree.root().join("linked");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let checker = UpdateChecker::new(
+            Arc::new(FakeGitProbe::new()),
+            Arc::new(FakeRegistryClient::new()),
+        );
+
+        checker.check(
+            &[marketplace("official", link.to_str().unwrap())],
+            &[],
+            &PluginCatalogue::default(),
+            &[],
+            &[],
+        );
+
+        assert!(leftover.exists());
     }
 }

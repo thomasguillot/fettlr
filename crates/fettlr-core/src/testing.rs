@@ -11,7 +11,7 @@ use crate::mcp::MonotonicClock;
 use crate::paths::Paths;
 use crate::skills::Clock;
 use crate::trashing::Trashing;
-use crate::updates::{GitProbing, PackageRegistry, RegistryClient};
+use crate::updates::{BehindCount, GitProbing, PackageRegistry, RegistryClient};
 
 #[derive(Clone, Debug)]
 pub struct RecordedCall {
@@ -187,6 +187,7 @@ impl MonotonicClock for FakeMonotonicClock {
 pub struct FakeGitProbe {
     counts: HashMap<String, u32>,
     failures: HashSet<String>,
+    unknown_counts: HashSet<String>,
     panics: HashSet<String>,
     sources: HashMap<String, (String, BTreeMap<String, String>)>,
     unreachable: HashSet<String>,
@@ -200,6 +201,7 @@ impl FakeGitProbe {
         Self {
             counts: HashMap::new(),
             failures: HashSet::new(),
+            unknown_counts: HashSet::new(),
             panics: HashSet::new(),
             sources: HashMap::new(),
             unreachable: HashSet::new(),
@@ -281,6 +283,11 @@ impl FakeGitProbe {
         self
     }
 
+    pub fn with_unknown_count_for(mut self, repo: impl Into<String>) -> Self {
+        self.unknown_counts.insert(repo.into());
+        self
+    }
+
     pub fn with_unreachable_source(mut self, url: &'static str) -> Self {
         self.unreachable.insert(url.to_string());
         self
@@ -318,7 +325,7 @@ impl Default for FakeGitProbe {
 }
 
 impl GitProbing for FakeGitProbe {
-    fn behind_count(&self, repo: &Path) -> Result<u32, CoreError> {
+    fn behind_count(&self, repo: &Path) -> Result<BehindCount, CoreError> {
         let key = repo.display().to_string();
         if self.panics.contains(&key) {
             panic!("FakeGitProbe configured to panic for {key}");
@@ -326,7 +333,12 @@ impl GitProbing for FakeGitProbe {
         if self.failures.contains(&key) {
             return Err(CoreError::NoUpstream { repo: key });
         }
-        Ok(self.counts.get(&key).copied().unwrap_or(0))
+        if self.unknown_counts.contains(&key) {
+            return Ok(BehindCount::Unknown);
+        }
+        Ok(BehindCount::Commits(
+            self.counts.get(&key).copied().unwrap_or(0),
+        ))
     }
 
     fn pull_ff_only(&self, _repo: &Path) -> Result<(), CoreError> {

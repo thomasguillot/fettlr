@@ -116,7 +116,7 @@ export function UpdateStatusBadge({
   tracksLatest?: boolean;
 }) {
   const { t } = useTranslation();
-  if (state?.kind === pending) {
+  if (state?.kind === pending || state?.kind === "sourceChanged") {
     return stale ? (
       <StaleBadge>{describeUpdateState(state, t)}</StaleBadge>
     ) : (

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, TryLockError};
 
@@ -11,10 +12,12 @@ use crate::mcp::{McpOrigin, McpServer, McpStore};
 use crate::models::{Scope, UpdateState};
 use crate::paths::Paths;
 use crate::skills::{
-    ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore, SkillsLock, SystemClock,
-    account_skills_behind, is_plain_name, read_skills_lock, record_skill_update,
-    recover_interrupted_swaps, replace_skill_folder, set_aside_path, write_skill_zip,
+    AccountSkillBehind, ParkKind, ParkedSkill, ParkedSubagent, Provenance, Skill, SkillStore,
+    SkillsLock, SystemClock, account_skills_behind, is_plain_name, read_skills_lock,
+    record_skill_update, recover_interrupted_swaps, replace_skill_folder, set_aside_path,
+    write_skill_zip,
 };
+use crate::skills::{account_skills_caught_up, candidate_fingerprints};
 use crate::snapshot::Snapshot;
 use crate::subagents::Subagent;
 use crate::trashing::Trashing;
@@ -22,6 +25,8 @@ use crate::updates::{
     GitProbing, RegistryClient, UpdateChecker, UpdateReport, checkable_source_url,
     read_plugin_catalogue, skill_source_repo,
 };
+
+type SkipStore = BTreeMap<String, BTreeMap<String, String>>;
 
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +47,7 @@ pub struct Fettlr {
     snapshot: Mutex<Snapshot>,
     refresh_lock: Mutex<()>,
     skills_cli_update_lock: Mutex<()>,
+    skips_lock: Mutex<()>,
 }
 
 impl Fettlr {
@@ -75,6 +81,7 @@ impl Fettlr {
             snapshot: Mutex::new(Snapshot::default()),
             refresh_lock: Mutex::new(()),
             skills_cli_update_lock: Mutex::new(()),
+            skips_lock: Mutex::new(()),
         }
     }
 
@@ -174,7 +181,8 @@ impl Fettlr {
             .as_ref()
             .map(UpdateReport::stale_ids)
             .unwrap_or_default();
-        let account_skills_behind = account_skills_behind(&skills, &stale);
+        let (account_skills_behind, account_skills_skipped) =
+            self.apply_skips(&skills, account_skills_behind(&skills, &stale));
 
         let parked_subagents = match self.subagent_store.parked() {
             Ok(records) => records,
@@ -196,6 +204,7 @@ impl Fettlr {
             snapshot.cli_available = !binary_missing;
             snapshot.skills = skills;
             snapshot.account_skills_behind = account_skills_behind;
+            snapshot.account_skills_skipped = account_skills_skipped;
             snapshot.parked_skills = parked_skills;
             snapshot.subagents = subagents;
             snapshot.parked_subagents = parked_subagents;
@@ -252,7 +261,12 @@ impl Fettlr {
         let stale = report.stale_ids();
         Ok(self.update(|snapshot| {
             snapshot.available_plugins = available_plugins;
-            snapshot.account_skills_behind = account_skills_behind(&snapshot.skills, &stale);
+            let (behind, skipped) = self.apply_skips(
+                &snapshot.skills,
+                account_skills_behind(&snapshot.skills, &stale),
+            );
+            snapshot.account_skills_behind = behind;
+            snapshot.account_skills_skipped = skipped;
             snapshot.update_report = Some(report);
             if binary_missing {
                 snapshot.cli_available = false;
@@ -289,6 +303,98 @@ impl Fettlr {
 
     fn cached_connectors(&self) -> ConnectorCache {
         load_json_store(&self.connectors_path()).unwrap_or_default()
+    }
+
+    fn account_skill_skips_path(&self) -> PathBuf {
+        self.paths.support_dir.join("account-skill-skips.json")
+    }
+
+    fn load_skips(&self) -> SkipStore {
+        load_json_store(&self.account_skill_skips_path()).unwrap_or_default()
+    }
+
+    fn apply_skips(
+        &self,
+        skills: &[Skill],
+        behind: Vec<AccountSkillBehind>,
+    ) -> (Vec<AccountSkillBehind>, Vec<AccountSkillBehind>) {
+        let _guard = self.skips_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut skips = self.load_skips();
+        if skips.is_empty() {
+            return (behind, Vec::new());
+        }
+        let before = skips.clone();
+        let mut visible = Vec::new();
+        let mut skipped = Vec::new();
+        for entry in behind {
+            let stored = skips.get(&entry.account_id);
+            let current = candidate_fingerprints(skills, &entry.account_id);
+            match (stored, current) {
+                (Some(stored), Some(current))
+                    if current.iter().all(|(id, print)| match stored.get(id) {
+                        Some(known) => known == print,
+                        None => *id != entry.local_id,
+                    }) =>
+                {
+                    let mut merged = stored.clone();
+                    merged.extend(current);
+                    skips.insert(entry.account_id.clone(), merged);
+                    skipped.push(entry);
+                }
+                (Some(_), Some(_)) => {
+                    skips.remove(&entry.account_id);
+                    visible.push(entry);
+                }
+                _ => visible.push(entry),
+            }
+        }
+        for caught_up in account_skills_caught_up(skills) {
+            skips.remove(&caught_up);
+        }
+        if skips != before {
+            let _ = save_json_store(&self.account_skill_skips_path(), &skips);
+        }
+        (visible, skipped)
+    }
+
+    /// Hides an account skill's "local copy is newer" row until a local copy changes or the
+    /// account copy catches up.
+    pub fn skip_account_skill(&self, account_id: &str) -> Result<Snapshot, CoreError> {
+        let snapshot = self.snapshot();
+        let display_name = snapshot
+            .skills
+            .iter()
+            .find(|skill| skill.id == account_id)
+            .map(|skill| skill.title.clone().unwrap_or_else(|| skill.name.clone()))
+            .unwrap_or_else(|| account_id.to_string());
+        let listed = snapshot
+            .account_skills_behind
+            .iter()
+            .chain(&snapshot.account_skills_skipped)
+            .any(|entry| entry.account_id == account_id);
+        if !listed {
+            return Err(CoreError::AccountSkillNotBehind { name: display_name });
+        }
+        let Some(prints) = candidate_fingerprints(&snapshot.skills, account_id) else {
+            return Err(CoreError::AccountSkillLocalUnreadable { name: display_name });
+        };
+        self.mutate(|| {
+            let _guard = self.skips_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let mut skips = self.load_skips();
+            skips.insert(account_id.to_string(), prints);
+            save_json_store(&self.account_skill_skips_path(), &skips)
+        })
+    }
+
+    pub fn unskip_account_skill(&self, account_id: &str) -> Result<Snapshot, CoreError> {
+        self.mutate(|| {
+            let _guard = self.skips_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let mut skips = self.load_skips();
+            if skips.remove(account_id).is_some() {
+                save_json_store(&self.account_skill_skips_path(), &skips)?;
+            }
+            Ok(())
+        })
     }
 
     fn mutate(&self, body: impl FnOnce() -> Result<(), CoreError>) -> Result<Snapshot, CoreError> {

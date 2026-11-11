@@ -238,7 +238,11 @@
       "noNewerCopy": "Aucune copie locale plus récente",
       "package": "Exporter en ZIP",
       "packageShort": "Exporter",
-      "packageHint": "Fettlr ne peut pas modifier les compétences de votre compte Claude. Exportez la copie la plus récente en ZIP, puis importez-la dans les réglages des compétences de Claude."
+      "packageHint": "Fettlr ne peut pas modifier les compétences de votre compte Claude. Exportez la copie la plus récente en ZIP, puis importez-la dans les réglages des compétences de Claude.",
+      "skipShort": "Ignorer",
+      "skip": "Ignorer cette version",
+      "undoSkip": "Ne plus ignorer",
+      "behindSkipped": "Copie locale plus récente (ignorée)"
     }
   },
   "subagents": {

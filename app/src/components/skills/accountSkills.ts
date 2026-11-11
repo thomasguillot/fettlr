@@ -16,6 +16,13 @@ export function accountBehindFor(
   return snapshot?.accountSkillsBehind.find((entry) => entry.accountId === accountId);
 }
 
+export function accountSkippedFor(
+  snapshot: UiSnapshot | null | undefined,
+  accountId: string,
+): UiAccountSkillBehind | undefined {
+  return snapshot?.accountSkillsSkipped.find((entry) => entry.accountId === accountId);
+}
+
 export function describeAccountBehind(entry: UiAccountSkillBehind, t: Translate): string {
   return entry.localVersion
     ? t("skills.account.behindVersion", { version: entry.localVersion })

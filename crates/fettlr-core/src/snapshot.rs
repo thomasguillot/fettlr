@@ -14,6 +14,8 @@ pub struct Snapshot {
     pub cli_available: bool,
     pub skills: Vec<Skill>,
     pub account_skills_behind: Vec<AccountSkillBehind>,
+    /// Behind entries the reader chose to skip, held while the local copy is unchanged.
+    pub account_skills_skipped: Vec<AccountSkillBehind>,
     pub parked_skills: Vec<ParkedSkill>,
     pub subagents: Vec<Subagent>,
     pub parked_subagents: Vec<ParkedSubagent>,

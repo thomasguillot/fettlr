@@ -414,6 +414,10 @@ pub enum CoreError {
         "removed the MCP server {name} but could not put it back; add it again with these settings: {config_json}"
     )]
     UnrestorableMcpServer { name: String, config_json: String },
+    #[error("the account skill {name} is not behind a local copy, so there is nothing to skip")]
+    AccountSkillNotBehind { name: String },
+    #[error("could not read the local copy of {name}, so it was not skipped")]
+    AccountSkillLocalUnreadable { name: String },
     #[error("could not package the skill {name}: {reason}")]
     UnpackageableSkill { name: String, reason: String },
     #[error("{repo} has no upstream branch configured")]

@@ -890,6 +890,7 @@ pub struct UiSnapshot {
     pub cli_available: bool,
     pub skills: Vec<UiSkill>,
     pub account_skills_behind: Vec<UiAccountSkillBehind>,
+    pub account_skills_skipped: Vec<UiAccountSkillBehind>,
     pub parked_skills: Vec<UiParkedSkill>,
     pub subagents: Vec<UiSubagent>,
     pub parked_subagents: Vec<UiParkedSubagent>,
@@ -997,6 +998,11 @@ impl From<Snapshot> for UiSnapshot {
                 .collect(),
             account_skills_behind: snapshot
                 .account_skills_behind
+                .iter()
+                .map(UiAccountSkillBehind::from)
+                .collect(),
+            account_skills_skipped: snapshot
+                .account_skills_skipped
                 .iter()
                 .map(UiAccountSkillBehind::from)
                 .collect(),

@@ -80,6 +80,10 @@ describe("needsUpdatingTotal", () => {
     expect(needsUpdatingTotal(snapshotWith({ accountSkillsBehind: [entry] }))).toBe(1);
   });
 
+  it("leaves skipped account skills out of the total", () => {
+    expect(needsUpdatingTotal(snapshotWith({ accountSkillsSkipped: [entry] }))).toBe(0);
+  });
+
   it("adds the stale ids and the account skills", () => {
     const stale = report({
       stale: { marketplaces: [], plugins: ["p"], skills: ["s"], mcpServers: [] },
@@ -96,6 +100,7 @@ function snapshotWith(overrides: Partial<UiSnapshot>): UiSnapshot {
     skills: [],
     parkedSkills: [],
     accountSkillsBehind: [],
+    accountSkillsSkipped: [],
     subagents: [],
     parkedSubagents: [],
     plugins: [],

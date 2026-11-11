@@ -8,6 +8,7 @@ mod store;
 
 pub(crate) use account::account_skills;
 pub use account_compare::{AccountSkillBehind, account_skills_behind};
+pub(crate) use account_compare::{account_skills_caught_up, candidate_fingerprints};
 pub use model::{Provenance, Skill};
 pub use package::write_skill_zip;
 pub(crate) use skill_files::skill_files;

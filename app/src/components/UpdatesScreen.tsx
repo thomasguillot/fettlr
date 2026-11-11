@@ -168,6 +168,8 @@ export function UpdatesScreen() {
           }
         },
         actionKey: "skills.account.packageShort",
+        secondaryAction: () => void dispatch(commands.skipAccountSkill(entry.accountId)),
+        secondaryActionKey: "skills.account.skipShort",
         inUpdateAll: false,
       });
     }
@@ -178,12 +180,10 @@ export function UpdatesScreen() {
   const updateAllTotal = useMemo(() => updateAllCount(rows), [rows]);
   const checked = snapshot?.updateReport != null;
 
-  const columns = {
-    name: "w-[40%]",
-    kind: "w-[18%]",
-    status: "w-[27%]",
-    action: "w-[15%]",
-  };
+  const hasSecondary = rows.some((row) => row.secondaryAction);
+  const columns = hasSecondary
+    ? { name: "w-[36%]", kind: "w-[16%]", status: "w-[24%]", action: "w-[24%]" }
+    : { name: "w-[40%]", kind: "w-[18%]", status: "w-[27%]", action: "w-[15%]" };
 
   return (
     <ScreenShell
@@ -248,6 +248,39 @@ export function UpdatesScreen() {
                   {rows.map((row) => {
                     const stage = updateRun?.items[row.id];
                     const spinning = updatingId === row.id || stage === "running";
+                    const primaryButton = (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy || packaging || runActive || updatingId !== null || row.action === null}
+                        onClick={() => row.action?.(row.id)}
+                        className="relative"
+                      >
+                        <span className={cn((spinning || stage === "updated" || stage === "failed") && "invisible")}>
+                          {t(row.actionKey)}
+                        </span>
+                        {spinning ? (
+                          <>
+                            <RiLoader4Line
+                              className="absolute inset-0 m-auto size-4 animate-spin"
+                              aria-hidden="true"
+                            />
+                            <span className="sr-only">{t("common.updating")}</span>
+                          </>
+                        ) : stage === "updated" ? (
+                          <>
+                            <RiCheckLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
+                            <span className="sr-only">{t("common.updated")}</span>
+                          </>
+                        ) : stage === "failed" ? (
+                          <>
+                            <RiAlertLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
+                            <span className="sr-only">{t("common.updateFailed")}</span>
+                          </>
+                        ) : null}
+                      </Button>
+                    );
                     return (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium text-text">
@@ -265,37 +298,22 @@ export function UpdatesScreen() {
                           <StaleBadge>{row.detail}</StaleBadge>
                         </TableCell>
                         <TableCell className={cn("text-right", columns.action)}>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy || packaging || runActive || updatingId !== null || row.action === null}
-                            onClick={() => row.action?.(row.id)}
-                            className="relative"
-                          >
-                            <span className={cn((spinning || stage === "updated" || stage === "failed") && "invisible")}>
-                              {t(row.actionKey)}
-                            </span>
-                            {spinning ? (
-                              <>
-                                <RiLoader4Line
-                                  className="absolute inset-0 m-auto size-4 animate-spin"
-                                  aria-hidden="true"
-                                />
-                                <span className="sr-only">{t("common.updating")}</span>
-                              </>
-                            ) : stage === "updated" ? (
-                              <>
-                                <RiCheckLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
-                                <span className="sr-only">{t("common.updated")}</span>
-                              </>
-                            ) : stage === "failed" ? (
-                              <>
-                                <RiAlertLine className="absolute inset-0 m-auto size-4" aria-hidden="true" />
-                                <span className="sr-only">{t("common.updateFailed")}</span>
-                              </>
-                            ) : null}
-                          </Button>
+                          {row.secondaryAction ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                disabled={busy || packaging || runActive || updatingId !== null}
+                                onClick={() => row.secondaryAction?.(row.id)}
+                              >
+                                {t(row.secondaryActionKey ?? "")}
+                              </Button>
+                              {primaryButton}
+                            </div>
+                          ) : (
+                            primaryButton
+                          )}
                         </TableCell>
                       </TableRow>
                     );

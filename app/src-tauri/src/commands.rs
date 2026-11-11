@@ -361,6 +361,30 @@ pub async fn pull_skill(state: State<'_, Arc<AppState>>, skill_id: String) -> An
 
 #[tauri::command]
 #[specta::specta]
+pub async fn skip_account_skill(
+    state: State<'_, Arc<AppState>>,
+    account_id: String,
+) -> Answer<UiSnapshot> {
+    mutation(&state, move |fettlr| {
+        Ok((fettlr.skip_account_skill(&account_id), Vec::new()))
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn unskip_account_skill(
+    state: State<'_, Arc<AppState>>,
+    account_id: String,
+) -> Answer<UiSnapshot> {
+    mutation(&state, move |fettlr| {
+        Ok((fettlr.unskip_account_skill(&account_id), Vec::new()))
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn package_skill(state: State<'_, Arc<AppState>>, skill_id: String) -> Answer<String> {
     let fettlr = state.fettlr();
     blocking(move || {

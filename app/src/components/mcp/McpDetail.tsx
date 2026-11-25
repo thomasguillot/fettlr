@@ -184,7 +184,7 @@ function ActiveMcpDetail({
       </div>
 
       {isPlugin ? (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-subtle p-3">
+        <div data-slot="detail-note" className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-subtle p-3">
           <p className="text-sm text-text-muted">{t("mcp.detail.pluginManaged", { pluginId })}</p>
           <Button type="button" variant="secondary" size="sm" onClick={() => select("plugins")}>
             {t("mcp.detail.jumpToPlugin")}
@@ -549,7 +549,7 @@ function McpOutputDialog({
           <DialogTitle>{t("mcp.detail.outputTitle")}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <ScrollArea className="h-64 rounded-md border border-border bg-bg-subtle">
+          <ScrollArea data-plane="" className="h-64 rounded-md border border-border bg-bg-subtle">
           {failed ? (
             <p className="p-3 text-sm text-text-muted">{t("mcp.detail.outputError")}</p>
           ) : output === null ? (

@@ -46,6 +46,7 @@ export function SelectContent({
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
+        data-slot="select-content"
         position={position}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}

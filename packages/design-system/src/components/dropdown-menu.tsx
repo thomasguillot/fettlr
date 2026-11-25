@@ -19,6 +19,7 @@ export function DropdownMenuContent({
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         align={align}
         collisionPadding={collisionPadding}

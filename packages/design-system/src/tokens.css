@@ -336,3 +336,92 @@
   --color-overlay: oklch(0.22 0.014 278.8 / 0.6);
 }
 
+[data-palette="plastc"] {
+  color-scheme: light;
+
+  --color-bg: oklch(0.8829 0.013 86.84);
+  --color-bg-subtle: oklch(0.8672 0.0143 88.69);
+  --color-surface: oklch(0.919 0.0112 89.73);
+  --color-surface-hover: oklch(0.8829 0.013 86.84);
+  --color-panel: oklch(0.919 0.0112 89.73);
+  --color-border: oklch(0.7674 0.0134 86.84);
+  --color-border-strong: oklch(0.5729 0.0172 90.32);
+  --color-text: oklch(0.2319 0.0064 78.2);
+  --color-text-muted: oklch(0.3224 0.0096 80.66);
+  --color-inverse: oklch(0.8072 0.0354 121.64);
+  --color-inverse-contrast: oklch(0.2468 0.0287 134.72);
+  --color-inverse-muted: oklch(0.3232 0.03 131.81);
+  --color-inverse-border: oklch(0.6611 0.0318 113.58);
+  --color-selected: oklch(0.919 0.0112 89.73);
+  --color-selected-contrast: oklch(0.2319 0.0064 78.2);
+  --color-accent: oklch(0.5204 0.1622 38.79);
+  --color-accent-hover: oklch(0.5641 0.1706 40.02);
+  --color-accent-contrast: oklch(1 0 89.88);
+  --color-accent-text: oklch(0.2319 0.0064 78.2);
+  --color-accent-soft: oklch(0.8464 0.0148 84.59);
+  --color-blue: oklch(0.5204 0.1622 38.79);
+  --color-blue-contrast: oklch(1 0 89.88);
+  --color-blue-text: oklch(0.4221 0.1339 36.7);
+  --color-blue-display: oklch(0.4221 0.1339 36.7);
+  --color-blue-soft: oklch(0.8464 0.0148 84.59);
+  --color-danger: oklch(0.5074 0.1754 29.56);
+  --color-danger-hover: oklch(0.4715 0.163 29.57);
+  --color-danger-contrast: oklch(1 0 89.88);
+  --color-danger-text: oklch(0.4272 0.1492 29.68);
+  --color-danger-soft: oklch(0.967 0.0133 28.87);
+  --color-success: oklch(0.4784 0.0921 141.86);
+  --color-success-contrast: oklch(1 0 89.88);
+  --color-success-text: oklch(0.4237 0.0887 142.12);
+  --color-success-soft: oklch(0.9694 0.0123 137.78);
+  --color-warning: oklch(0.4921 0.1095 66.01);
+  --color-warning-contrast: oklch(1 0 89.88);
+  --color-warning-text: oklch(0.4921 0.1095 66.01);
+  --color-warning-soft: oklch(0.9751 0.0187 83.06);
+  --color-ring: oklch(0.2319 0.0064 78.2);
+  --color-overlay: oklch(0.2759 0.0282 75.49 / 0.28);
+}
+
+[data-palette="plastc"].dark {
+  color-scheme: dark;
+
+  --color-bg: oklch(0.285 0.0056 91.57);
+  --color-bg-subtle: oklch(0.2686 0.0056 91.58);
+  --color-surface: oklch(0.321 0.0054 91.55);
+  --color-surface-hover: oklch(0.285 0.0056 91.57);
+  --color-panel: oklch(0.321 0.0054 91.55);
+  --color-border: oklch(0.4315 0.0085 88.71);
+  --color-border-strong: oklch(0.5775 0.0116 81.78);
+  --color-text: oklch(0.9465 0.0099 87.47);
+  --color-text-muted: oklch(0.8801 0.0117 84.58);
+  --color-inverse: oklch(0.2635 0.0283 134.65);
+  --color-inverse-contrast: oklch(0.8783 0.0865 126.59);
+  --color-inverse-muted: oklch(0.8086 0.0735 127.69);
+  --color-inverse-border: oklch(0.4804 0.0425 131.67);
+  --color-selected: oklch(0.321 0.0054 91.55);
+  --color-selected-contrast: oklch(0.9465 0.0099 87.47);
+  --color-accent: oklch(0.5204 0.1622 38.79);
+  --color-accent-hover: oklch(0.5641 0.1706 40.02);
+  --color-accent-contrast: oklch(1 0 89.88);
+  --color-accent-text: oklch(0.9465 0.0099 87.47);
+  --color-accent-soft: oklch(0.2431 0.0076 95.37);
+  --color-blue: oklch(0.5204 0.1622 38.79);
+  --color-blue-contrast: oklch(1 0 89.88);
+  --color-blue-text: oklch(0.807 0.1214 49.76);
+  --color-blue-display: oklch(0.807 0.1214 49.76);
+  --color-blue-soft: oklch(0.2431 0.0076 95.37);
+  --color-danger: oklch(0.5074 0.1754 29.56);
+  --color-danger-hover: oklch(0.4715 0.163 29.57);
+  --color-danger-contrast: oklch(1 0 89.88);
+  --color-danger-text: oklch(0.8501 0.0747 28.94);
+  --color-danger-soft: oklch(0.3359 0.0321 33.81);
+  --color-success: oklch(0.4784 0.0921 141.86);
+  --color-success-contrast: oklch(1 0 89.88);
+  --color-success-text: oklch(0.8068 0.1026 138.15);
+  --color-success-soft: oklch(0.3379 0.0226 132.29);
+  --color-warning: oklch(0.4921 0.1095 66.01);
+  --color-warning-contrast: oklch(1 0 89.88);
+  --color-warning-text: oklch(0.8067 0.1258 74.03);
+  --color-warning-soft: oklch(0.3391 0.0285 77.62);
+  --color-ring: oklch(0.9465 0.0099 87.47);
+  --color-overlay: oklch(0 0 0 / 0.5);
+}

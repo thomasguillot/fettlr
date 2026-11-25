@@ -233,7 +233,7 @@ export function UpdatesScreen() {
             />
           )
         ) : rows.length > 0 ? (
-          <div className={contentFrame}>
+          <div data-slot="content-frame" className={contentFrame}>
             <ScrollArea className={cn("min-h-0", stickyHeaderScrollArea)}>
               <Table className={framedTable} containerClassName="overflow-x-visible">
                 <TableHeader className={stickyTableHeader}>

@@ -232,10 +232,10 @@ Themes sit at one of two tiers.
   the text it separates, and that is the rule a high contrast theme is for breaking. It also raises
   every reading pair to `Lc 90`, described below.
 - **Cosmetic.** A theme that reproduces a published palette faithfully, where the palette's own
-  colours miss some of these levels. `dracula` is here. Its shortfalls are not skipped: every one is
-  listed below with the `Lc` it actually reaches, and the gate fails if a listed pair drifts by more
-  than 0.5, if a listed pair starts passing, or if a pair fails that is not listed. The list can
-  only be wrong loudly.
+  colours miss some of these levels. `dracula` and `plastc` are here. Their shortfalls are not
+  skipped: every one is listed below with the `Lc` it actually reaches, and the gate fails if a
+  listed pair drifts by more than 0.5, if a listed pair starts passing, or if a pair fails that is
+  not listed. The list can only be wrong loudly.
 
 ## The high contrast floor
 
@@ -361,3 +361,68 @@ danger-text on surface-hover: 70.5
 selected-contrast on selected: 86.7
 ```
 
+`plastc` reproduces Plastc, our own neumorphic Tailwind kit (plastc.space.fast), at its published
+values. Every colour the kit names is used at its exact hex: the housing, housing-up and
+housing-down grounds, ink and ink-2, the LCD trio, signal, signal-text, go, ok, warn, danger and
+focus, plus the kit's own success, warning and error scales for the fills and tints it does not
+name. Plastc tunes body text to about `Lc 75` and its status and LCD text to roughly `Lc 60` to
+`80`, below this contract's `90` and `75`, which is what puts the theme at the cosmetic tier.
+
+Derived tokens are tuned to clear the contract: the two border weights (Plastc draws its seams as
+translucent umber or black over the housing, flattened here to solid colours that clear their
+floors against every ground), the LCD rules, the dark status tints, and `surface-hover`, which
+is the housing itself, as Plastc's menus hover. `bg-subtle` is the one derived ground Plastc does
+not name: the sidebar and the drawer sit halfway between housing and housing-down by ruling, which
+is why the text pairs on it appear below.
+
+In dark, `accent on accent-soft` is Plastc's signal cap against its own recessed housing-down. A
+mid-lightness orange cannot separate from a near-black ground, which is the same shape as
+Dracula's purple accent.
+
+### plastc dark
+
+```
+inverse-contrast on inverse: 80.5
+inverse-muted on inverse: 66.9
+blue-text on bg: 63.0
+blue-text on surface: 61.0
+blue-text on blue-soft: 64.7
+danger-text on bg: 71.3
+danger-text on surface: 69.3
+danger-text on surface-hover: 71.3
+danger-text on danger-soft: 68.4
+success-text on bg: 66.5
+success-text on surface: 64.5
+success-text on success-soft: 63.1
+warning-text on bg: 63.9
+warning-text on surface: 61.8
+warning-text on warning-soft: 60.6
+accent on accent-soft: 21.1
+```
+
+### plastc light
+
+```
+text on bg: 81.1
+text on bg-subtle: 78.2
+text on surface: 87.9
+text on accent-soft: 74.4
+text-muted on bg-subtle: 73.0
+text-muted on accent-soft: 69.2
+inverse-contrast on inverse: 67.2
+inverse-muted on inverse: 62.5
+selected-contrast on selected: 87.9
+blue-text on bg: 66.8
+blue-text on surface: 73.6
+blue-text on blue-soft: 60.1
+text-muted on blue-soft: 69.2
+text on blue-soft: 74.4
+accent-text on accent-soft: 74.4
+danger-text on bg: 66.2
+danger-text on surface: 73.0
+danger-text on surface-hover: 66.2
+success-text on bg: 65.0
+success-text on surface: 71.8
+warning-text on bg: 58.7
+warning-text on surface: 65.5
+```

@@ -1308,6 +1308,7 @@ pub enum UiPalette {
     Default,
     HighContrast,
     Dracula,
+    Plastc,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]

@@ -189,7 +189,7 @@ export type UiMcpServer = {
 	config: UiMcpConfig,
 };
 
-export type UiPalette = "default" | "highContrast" | "dracula";
+export type UiPalette = "default" | "highContrast" | "dracula" | "plastc";
 
 export type UiParkedSkill = {
 	id: string,

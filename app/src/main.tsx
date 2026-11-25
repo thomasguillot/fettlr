@@ -12,6 +12,7 @@ const PALETTE_CSS: Record<UiPalette, string> = {
   default: "default",
   highContrast: "high-contrast",
   dracula: "dracula",
+  plastc: "plastc",
 };
 
 void startEventBridge();

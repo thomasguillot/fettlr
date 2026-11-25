@@ -109,6 +109,7 @@ export function DetailHeader({ title }: { title: ReactNode }) {
   const onClose = useContext(SidecarCloseContext);
   return (
     <div
+      data-slot="detail-pane-header"
       className={cn(
         "sticky top-0 z-10 -mx-6 flex h-12 shrink-0 items-center justify-between gap-2",
         "border-b border-border bg-surface px-6",
@@ -202,6 +203,7 @@ export function SidecarLayout({
     <div style={sidecarWidth} className="min-h-0 flex-1 overflow-hidden">
       <div className="flex h-full min-h-0 min-w-0 flex-col">{children}</div>
       <aside
+        data-slot="detail-pane"
         aria-label={label}
         aria-hidden={!open}
         inert={!open}

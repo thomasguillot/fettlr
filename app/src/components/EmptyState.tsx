@@ -27,6 +27,7 @@ export function EmptyState({
     >
       <span
         aria-hidden="true"
+        data-slot="empty-state-icon"
         className="flex size-10 items-center justify-center rounded-full bg-accent-soft"
       >
         <Icon className="size-5 text-accent-text" />

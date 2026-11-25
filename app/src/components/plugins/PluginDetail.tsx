@@ -121,7 +121,7 @@ function ActivePluginDetail({ plugin, onRemoved }: { plugin: UiPlugin; onRemoved
         <h3 className={capsHeading}>
           {t("plugins.detail.detailsHeading")}
         </h3>
-        <ScrollArea className="h-56 rounded-md border border-border bg-bg-subtle">
+        <ScrollArea data-plane="" className="h-56 rounded-md border border-border bg-bg-subtle">
           {detailsError ? (
             <p className="p-3 text-sm text-text-muted">{t("plugins.detail.detailsError")}</p>
           ) : details === null ? (

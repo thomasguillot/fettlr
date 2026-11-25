@@ -108,6 +108,7 @@ export function ConnectorsScreen() {
                 <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
                   <span
                     aria-hidden="true"
+                    data-slot="empty-state-icon"
                     className="flex size-10 items-center justify-center rounded-full bg-accent-soft"
                   >
                     <RiCloudLine className="size-5 text-accent-text" />
@@ -125,7 +126,7 @@ export function ConnectorsScreen() {
               </Card>
             </div>
           ) : (
-            <div className={contentFrame}>
+            <div data-slot="content-frame" className={contentFrame}>
               <ScrollArea className={cn("min-h-0", stickyHeaderScrollArea)}>
                 <Table role="grid" className={framedTable} containerClassName="overflow-x-visible">
                   <TableHeader className={stickyTableHeader}>

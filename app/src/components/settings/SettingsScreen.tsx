@@ -50,6 +50,7 @@ const PALETTES: { value: UiPalette; labelKey: string }[] = [
   { value: "default", labelKey: "settings.paletteDefault" },
   { value: "highContrast", labelKey: "settings.paletteHighContrast" },
   { value: "dracula", labelKey: "settings.paletteDracula" },
+  { value: "plastc", labelKey: "settings.palettePlastc" },
 ];
 
 
@@ -172,7 +173,7 @@ function Section({
   const { t } = useTranslation();
   const headingId = useId();
   return (
-    <section aria-labelledby={headingId} className={contentFrame}>
+    <section aria-labelledby={headingId} data-slot="content-frame" className={contentFrame}>
       <h2 id={headingId} className={cn(groupHeading, capsHeading, "flex items-center")}>
         {t(titleKey)}
       </h2>
@@ -228,7 +229,7 @@ function SegmentedField<T extends string>({
 }) {
   const { t } = useTranslation();
   return (
-    <fieldset className="grid grid-cols-3 gap-0.5 rounded-md border border-border-strong bg-bg-subtle p-0.5">
+    <fieldset data-slot="segmented" className="grid grid-cols-3 gap-0.5 rounded-md border border-border-strong bg-bg-subtle p-0.5">
       <legend className="sr-only">{legend}</legend>
       {options.map((option) => {
         const Icon = option.icon;
@@ -236,6 +237,8 @@ function SegmentedField<T extends string>({
         return (
           <label
             key={option.value}
+            data-slot="segmented-item"
+            data-state={selected ? "on" : "off"}
             className={cn(
               "relative flex items-center justify-center gap-1.5 rounded-sm",
               "px-2 py-1.5 text-sm transition-colors",

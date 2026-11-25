@@ -90,7 +90,7 @@ function ActiveSkillDetail({ skill, onRemoved }: { skill: UiSkill; onRemoved: ()
       ) : null}
 
       {isPlugin ? (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-subtle p-3">
+        <div data-slot="detail-note" className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-subtle p-3">
           <p className="text-sm text-text-muted">
             {t("skills.detail.pluginManaged", { pluginId })}
           </p>

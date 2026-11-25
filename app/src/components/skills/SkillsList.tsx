@@ -91,9 +91,10 @@ export function SkillsList() {
               body={list.nothingExists ? t("skills.emptyBody") : t("filters.noResultsBody")}
             />
           ) : (
-            <div className={contentFrame}>
+            <div data-slot="content-frame" className={contentFrame}>
               <div
                 aria-hidden="true"
+                data-slot="list-header"
                 className={cn(rowGrid, "h-8 shrink-0 border-b border-border bg-bg-subtle", capsHeading)}
               >
                 <span className="truncate">{t("skills.columnName")}</span>

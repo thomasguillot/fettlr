@@ -52,6 +52,7 @@ export function Button({ className, variant, size, asChild = false, ...props }: 
   return (
     <Component
       data-slot="button"
+      data-variant={variant ?? "primary"}
       className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     />

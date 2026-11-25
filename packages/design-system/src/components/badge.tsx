@@ -52,6 +52,8 @@ export function Badge({ className, tone, variant, ...props }: BadgeProps) {
   return (
     <span
       data-slot="badge"
+      data-tone={tone ?? "neutral"}
+      data-variant={variant ?? "soft"}
       className={cn(badgeVariants({ tone, variant }), className)}
       {...props}
     />

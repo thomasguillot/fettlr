@@ -87,6 +87,12 @@ const THEMES = [
     dark: '[data-palette="dracula"].dark',
     cosmetic: true,
   },
+  {
+    id: "plastc",
+    light: '[data-palette="plastc"]',
+    dark: '[data-palette="plastc"].dark',
+    cosmetic: true,
+  },
 ];
 
 const DEVIATION_TOLERANCE = 0.5;

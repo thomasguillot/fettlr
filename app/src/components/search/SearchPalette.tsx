@@ -175,6 +175,7 @@ export function SearchPalette() {
               <CommandEmpty className="flex min-h-64 flex-col items-center justify-center gap-3 px-6">
                 <span
                   aria-hidden="true"
+                  data-slot="empty-state-icon"
                   className="flex size-10 items-center justify-center rounded-full bg-accent-soft"
                 >
                   <RiFileDamageLine className="size-5 text-accent-text" />

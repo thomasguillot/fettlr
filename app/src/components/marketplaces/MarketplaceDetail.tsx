@@ -146,7 +146,7 @@ function ActiveMarketplaceDetail({
         onConfirm={handleRemove}
       >
         {dependentPlugins.length > 0 ? (
-          <ul className="flex flex-col gap-1 rounded-md border border-border bg-bg-subtle p-2.5 text-sm text-text">
+          <ul data-plane="" className="flex flex-col gap-1 rounded-md border border-border bg-bg-subtle p-2.5 text-sm text-text">
             {dependentPlugins.map((plugin) => (
               <li key={plugin.id}>{plugin.name}</li>
             ))}

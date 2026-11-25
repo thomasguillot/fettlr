@@ -36,7 +36,7 @@ export function Onboarding() {
   return (
     <ScrollArea className="h-full min-h-0">
       <div className="flex min-h-full flex-col items-center justify-center gap-6 px-6 py-16">
-        <div className="flex size-12 items-center justify-center rounded-full bg-accent-soft">
+        <div data-slot="empty-state-icon" className="flex size-12 items-center justify-center rounded-full bg-accent-soft">
           <RiTerminalBoxLine className="size-6 text-accent-text" aria-hidden="true" />
         </div>
 
